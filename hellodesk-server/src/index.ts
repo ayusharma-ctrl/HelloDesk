@@ -23,7 +23,10 @@ dotenv.config();
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.APP_BASE_URL }
+  cors: {
+    origin: process.env.APP_BASE_URL,
+    credentials: true,
+  },
 });
 
 // Start AI Workers
@@ -36,13 +39,8 @@ app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no Origin (e.g. Postman, server-to-server)
-      // if (!origin) {
-      //   return callback(null, true);
-      // }
-
-      // Do not allow
       if (!origin) {
-        return callback(new Error("Not allowed by CORS"));
+        return callback(null, true);
       }
 
       if (origin === process.env.APP_BASE_URL) {
