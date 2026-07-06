@@ -1,0 +1,43 @@
+{
+    "framework": "nextjs",
+    "buildCommand": "next build",
+    "outputDirectory": ".next",
+    "installCommand": "npm install",
+    "env": {
+        "NEXT_PUBLIC_API_BASE_URL": {
+            "description": "Full URL of the hellodesk-server API (e.g. https://hellodesk-server.onrender.com)"
+        },
+        "NEXT_PUBLIC_SOCKET_URL": {
+            "description": "Full URL for Socket.io connection — usually the same as NEXT_PUBLIC_API_BASE_URL"
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/api/v1/:path*",
+            "destination": "https://hellodesk-server.onrender.com/api/v1/:path*"
+        }
+    ],
+    "headers": [
+        {
+            "source": "/(.*)",
+            "headers": [
+                {
+                    "key": "X-Content-Type-Options",
+                    "value": "nosniff"
+                },
+                {
+                    "key": "X-Frame-Options",
+                    "value": "DENY"
+                },
+                {
+                    "key": "X-XSS-Protection",
+                    "value": "1; mode=block"
+                },
+                {
+                    "key": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                }
+            ]
+        }
+    ]
+}
