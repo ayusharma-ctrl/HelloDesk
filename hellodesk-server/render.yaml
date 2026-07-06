@@ -4,12 +4,10 @@ services:
     runtime: node
     region: singapore
     plan: free
-    buildCommand: npm install && npm run prisma:generate && npm run build
+    buildCommand: npm install --include=dev && npm run prisma:generate && npm run build
     startCommand: npm run migrate && npm run start
     healthCheckPath: /api/v1/health
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: PORT
         value: "3001"
       - key: DATABASE_URL
