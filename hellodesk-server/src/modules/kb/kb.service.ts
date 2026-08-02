@@ -3,6 +3,7 @@ import type { CreateCategoryInput, CreateArticleInput, UpdateArticleInput } from
 
 export async function publicSearch(q: string) {
     const query = q.trim();
+
     if (!query) {
         return prisma.article.findMany({
             where: {
@@ -14,6 +15,7 @@ export async function publicSearch(q: string) {
             take: 10,
         });
     }
+
     return prisma.article.findMany({
         where: {
             status: 'published',
@@ -31,12 +33,20 @@ export async function publicSearch(q: string) {
 }
 
 export async function publicGetBySlug(slug: string) {
-    const article = await prisma.article.findFirst({ where: { slug, status: 'published' }, include: { category: true } });
+    const article = await prisma.article.findFirst({
+        where: {
+            slug,
+            status: 'published',
+        },
+        include: { category: true }
+    });
+
     if (!article) {
         const err = new Error('Article not found') as any;
         err.status = 404;
         throw err;
     }
+
     return article;
 }
 

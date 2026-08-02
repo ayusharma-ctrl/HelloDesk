@@ -84,11 +84,13 @@ export async function assignConversation(conversationId: string, workspaceId: st
 
 export async function enqueueConversation(conversationId: string, workspaceId: string) {
     const queueKey = `workspace:${workspaceId}:queue`;
+
     // Check if already in queue to prevent duplicates
     const currentQueue = await redis.lrange(queueKey, 0, -1);
     if (currentQueue.includes(conversationId)) return;
 
     await redis.rpush(queueKey, conversationId);
+
     const updated = await prisma.conversation.update({
         where: { id: conversationId },
         data: { status: 'pending' },
@@ -99,7 +101,9 @@ export async function enqueueConversation(conversationId: string, workspaceId: s
     if (io) {
         io.to(`workspace:${workspaceId}`).emit('conversation:updated', { conversationId: updated.id, conversation: updated });
         if (updated.contact?.visitorId) {
-            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: updated.id, conversation: updated });
+            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', {
+                conversationId: updated.id, conversation: updated
+            });
         }
     }
 }
@@ -137,6 +141,7 @@ export async function getQueueStatus(conversationId: string, workspaceId: string
     }
 
     const position = index + 1;
+
     return {
         position,
         estimatedWaitSeconds: calculateEWT(position),

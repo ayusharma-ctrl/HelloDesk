@@ -2,8 +2,6 @@ import { Request, Response } from 'express';
 import { startConversationSchema, sendWidgetMessageSchema } from './widget.schema.js';
 import * as widgetService from './widget.service.js';
 
-import { prisma } from '../../lib/prisma.js';
-
 export async function startConversation(req: Request, res: Response) {
     try {
         const input = startConversationSchema.parse(req.body);
@@ -11,8 +9,14 @@ export async function startConversation(req: Request, res: Response) {
         const io = req.app.get('io') || (global as any).io;
         if (io) {
             io.to(`workspace:${input.workspaceId}`).emit('conversation:created', { conversation: result.conversation });
-            io.to(`workspace:${input.workspaceId}`).emit('message:created', { conversationId: result.conversation.id, message: result.message });
-            io.to(`visitor:${result.visitorId}`).emit('message:created', { conversationId: result.conversation.id, message: result.message });
+            io.to(`workspace:${input.workspaceId}`).emit('message:created', {
+                conversationId: result.conversation.id,
+                message: result.message
+            });
+            io.to(`visitor:${result.visitorId}`).emit('message:created', {
+                conversationId: result.conversation.id,
+                message: result.message
+            });
         }
         return res.status(201).json(result);
     } catch (err: any) {
@@ -23,23 +27,24 @@ export async function startConversation(req: Request, res: Response) {
 export async function sendMessage(req: Request, res: Response) {
     try {
         const input = sendWidgetMessageSchema.parse(req.body);
-        const message = await widgetService.sendMessage(input);
-
-        // Fetch conversation to get workspaceId and ensure sync
-        const conversation = await prisma.conversation.findUnique({
-            where: { id: input.conversationId },
-            include: { contact: true }
-        });
+        const { message, conversation } = await widgetService.sendMessage(input);
 
         if (conversation) {
             const io = req.app.get('io') || (global as any).io;
             if (io) {
-                io.to(`workspace:${conversation.workspaceId}`).emit('message:created', { conversationId: conversation.id, message });
+                io.to(`workspace:${conversation.workspaceId}`).emit('message:created', {
+                    conversationId: conversation.id,
+                    message
+                });
                 if (conversation.contact?.visitorId) {
-                    io.to(`visitor:${conversation.contact.visitorId}`).emit('message:created', { conversationId: conversation.id, message });
+                    io.to(`visitor:${conversation.contact.visitorId}`).emit('message:created', {
+                        conversationId: conversation.id,
+                        message
+                    });
                 }
             }
         }
+
         return res.status(201).json({ message });
     } catch (err: any) {
         return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });

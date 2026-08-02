@@ -8,6 +8,7 @@ import type { InviteInput, UpdateRoleInput, UpdateStatusInput } from './users.sc
 async function sendInviteEmail(to: string, name: string, tempPassword: string, appBaseUrl: string): Promise<void> {
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM_EMAIL;
+
     if (!apiKey || !from) {
         logger.warn({ to }, 'RESEND_API_KEY or RESEND_FROM_EMAIL not set — skipping invite email');
         return;
@@ -59,18 +60,21 @@ export async function inviteUser(input: InviteInput, workspaceId: string) {
     const tempPassword = crypto.randomBytes(9).toString('base64').slice(0, 12);
 
     const passwordHash = await hashPassword(tempPassword);
+
     const user = await prisma.user.create({
         data: { workspaceId, roleId: roleRecord.id, name: input.name, email: input.email, passwordHash },
         include: { role: true },
     });
 
     const appBaseUrl = process.env.APP_BASE_URL ?? 'http://localhost:3000';
-    console.log(tempPassword);
-    await sendInviteEmail(user.email, user.name, tempPassword, appBaseUrl).catch(() => {
-        // non-blocking — user is already created
-    });
+
+    logger.info({ email: input.email, tempPassword }, 'tempPassword');
+
+    // send invite email asynchronously
+    sendInviteEmail(user.email, user.name, tempPassword, appBaseUrl);
 
     logger.info({ userId: user.id, workspaceId }, 'user invited');
+
     return user;
 }
 

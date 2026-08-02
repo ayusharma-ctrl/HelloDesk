@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { rateLimiter } from '../../lib/rate-limiter.js';
+import { tokenBucketRateLimiter } from '../../lib/rate-limiter.js';
 import * as widgetController from './widget.controller.js';
 
 const router = Router();
 
-// Public widget endpoints — generous limit (60/min) but still protected
-const widgetLimit = rateLimiter('widget', 60, 60_000);
+// Public widget endpoints — generous limit (70/min - burst of 10 and then 1 per second)
+const widgetLimit = tokenBucketRateLimiter('widget', 10, 1);
 
 router.post('/conversations', widgetLimit, widgetController.startConversation);
 router.post('/messages', widgetLimit, widgetController.sendMessage);

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { listAgentStatuses } from '../../lib/redis.js';
 import type { StartConversationInput, SendWidgetMessageInput } from './widget.schema.js';
 import * as assignmentService from '../assignment/assignment.service.js';
 
@@ -49,7 +50,10 @@ export async function startConversation(input: StartConversationInput) {
 }
 
 export async function sendMessage(input: SendWidgetMessageInput) {
-    const conversation = await prisma.conversation.findUnique({ where: { id: input.conversationId } });
+    const conversation = await prisma.conversation.findUnique({
+        where: { id: input.conversationId },
+        include: { contact: true }
+    });
     if (!conversation) {
         const err = new Error('Conversation not found') as any;
         err.status = 404;
@@ -70,7 +74,7 @@ export async function sendMessage(input: SendWidgetMessageInput) {
         mod.requestAiDraft(input.conversationId);
     });
 
-    return message;
+    return { conversation, message };
 }
 
 export async function getHistory(conversationId: string, visitorId: string) {
@@ -97,7 +101,10 @@ export async function getHistory(conversationId: string, visitorId: string) {
     if (updateResult.count > 0) {
         const io = (global as any).io;
         if (io) {
-            io.to(`workspace:${conversation.workspaceId}`).emit('conversation:updated', { conversationId, conversation: refreshed });
+            io.to(`workspace:${conversation.workspaceId}`).emit('conversation:updated', {
+                conversationId,
+                conversation: refreshed
+            });
         }
     }
 
@@ -127,7 +134,6 @@ export async function kbSuggestions(q: string, workspaceId?: string) {
     });
 }
 
-import { listAgentStatuses } from '../../lib/redis.js';
 export async function getStatus(workspaceId: string) {
     const agents = await listAgentStatuses(workspaceId);
     return agents.some(a => a.status === 'available');

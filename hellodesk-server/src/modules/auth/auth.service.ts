@@ -26,14 +26,14 @@ export async function signup(input: SignupInput): Promise<AuthResponse> {
         workspace = await prisma.workspace.create({ data: { name: workspaceName } });
     }
 
+    if (!workspace) throw new Error('Workspace could not be created');
+
     const existingUser = await prisma.user.findUnique({ where: { email: input.email } });
     if (existingUser) {
         const err = new Error('A user with that email already exists') as any;
         err.status = 409;
         throw err;
     }
-
-    if (!workspace) throw new Error('Workspace could not be created');
 
     const agentRole = await prisma.role.findUnique({ where: { name: 'agent' } });
     const roleId = isNewWorkspace ? adminRole.id : (agentRole?.id ?? adminRole.id);
@@ -50,7 +50,16 @@ export async function signup(input: SignupInput): Promise<AuthResponse> {
 
     return {
         token,
-        user: { id: user.id, email: user.email, name: user.name, role: user.role.name, workspace: { id: workspace.id, name: workspace.name } },
+        user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role.name,
+            workspace: {
+                id: workspace.id,
+                name: workspace.name
+            }
+        },
         permissions,
     };
 }
@@ -79,7 +88,16 @@ export async function login(input: LoginInput): Promise<AuthResponse> {
 
     return {
         token,
-        user: { id: user.id, email: user.email, name: user.name, role: user.role.name, workspace: { id: user.workspaceId, name: user.workspace.name } },
+        user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role.name,
+            workspace: {
+                id: user.workspaceId,
+                name: user.workspace.name
+            }
+        },
         permissions,
     };
 }
@@ -97,12 +115,16 @@ export async function getMe(userId: string): Promise<AuthUserDto & { permissions
     }
 
     const permissions = await getPermissionFlags(user.role.name);
+
     return {
         id: user.id,
         email: user.email,
         name: user.name,
         role: user.role.name,
-        workspace: { id: user.workspace.id, name: user.workspace.name },
+        workspace: {
+            id: user.workspace.id,
+            name: user.workspace.name
+        },
         permissions,
     };
 }

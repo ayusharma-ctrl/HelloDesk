@@ -1,9 +1,8 @@
-import { createRequire } from 'module';
+import { Redis } from 'ioredis';
 
-const require = createRequire(import.meta.url);
-const Redis = require('ioredis');
-
-export const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+export const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+    maxRetriesPerRequest: null,
+});
 
 export async function setAgentStatus(workspaceId: string, userId: string, status: string) {
     await redis.hset(`workspace:${workspaceId}:presence`, userId, status);

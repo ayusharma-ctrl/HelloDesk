@@ -141,7 +141,11 @@ io.on('connection', (socket) => {
     socket.data.workspaceId = targetWorkspaceId;
     if (socket.data.userId) {
       await setAgentStatus(targetWorkspaceId, socket.data.userId, 'available');
-      io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', { workspaceId: targetWorkspaceId, userId: socket.data.userId, status: 'available' });
+      io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', {
+        workspaceId: targetWorkspaceId,
+        userId: socket.data.userId,
+        status: 'available'
+      });
     }
   });
 
@@ -150,7 +154,11 @@ io.on('connection', (socket) => {
     const targetWorkspaceId = workspaceId ?? socket.data.workspaceId;
     if (!targetWorkspaceId || !socket.data.userId || !status) return;
     await setAgentStatus(targetWorkspaceId, socket.data.userId, status);
-    io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', { workspaceId: targetWorkspaceId, userId: socket.data.userId, status });
+    io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', {
+      workspaceId: targetWorkspaceId,
+      userId: socket.data.userId,
+      status
+    });
   });
 
   socket.on('typing:start', ({ conversationId, visitorId }: { conversationId?: string; visitorId?: string }) => {

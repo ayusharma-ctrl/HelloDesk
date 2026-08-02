@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission } from '../../lib/auth.js';
-import { rateLimiter } from '../../lib/rate-limiter.js';
+import { fixedWindowRateLimiter } from '../../lib/rate-limiter.js';
 import * as kbController from './kb.controller.js';
 
 const router = Router();
 
 // Public (rate-limited)
-const publicKbLimit = rateLimiter('kb-public', 30, 60_000);
+const publicKbLimit = fixedWindowRateLimiter('kb-public', 30, 60_000);
+
 router.get('/public/search', publicKbLimit, kbController.publicSearch);
 router.get('/public/articles/:slug', publicKbLimit, kbController.publicGetBySlug);
 

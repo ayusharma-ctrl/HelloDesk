@@ -1,17 +1,12 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const Redis = require('ioredis');
 import { Worker, Queue, Job } from 'bullmq';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { generateContent } from '../lib/gemini.js';
+import { redis } from '../lib/redis.js';
+import { Server } from 'socket.io';
 
-const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-    maxRetriesPerRequest: null
-});
-
-export const aiSummaryQueue = new Queue('ai-summary', { connection });
-export const aiDraftQueue = new Queue('ai-draft', { connection });
+export const aiSummaryQueue = new Queue('ai-summary', { connection: redis });
+export const aiDraftQueue = new Queue('ai-draft', { connection: redis });
 
 export async function requestAiSummary(conversationId: string) {
     await aiSummaryQueue.add('summarize', { conversationId }, { removeOnComplete: true });
@@ -21,9 +16,9 @@ export async function requestAiDraft(conversationId: string) {
     await aiDraftQueue.add('draft', { conversationId }, { removeOnComplete: true });
 }
 
-const workerOptions = { connection };
+const workerOptions = { connection: redis };
 
-export function startAiWorkers(io: any) {
+export function startAiWorkers(io: Server) {
     // SUMMARY WORKER
     new Worker('ai-summary', async (job: Job) => {
         const { conversationId } = job.data;
