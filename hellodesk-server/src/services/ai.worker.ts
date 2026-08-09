@@ -25,18 +25,19 @@ export function startAiWorkers(io: Server) {
         const conversation = await prisma.conversation.findUnique({
             where: { id: conversationId },
             include: {
-                messages: { orderBy: { createdAt: 'asc' } },
+                messages: {
+                    where: { isAiDraft: false },
+                    orderBy: { createdAt: 'asc' }
+                },
                 contact: true
             }
         });
 
-        if (!conversation) return;
+        if (!conversation || conversation.messages.length === 0) return;
 
-        const transcript = conversation.messages
-            .map(m => `${m.senderType.toUpperCase()}: ${m.body}`)
-            .join('\\n');
+        const transcript = conversation.messages.map(m => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
 
-        const prompt = `Summarize the following customer support conversation in 1-2 concise sentences. Be direct and helpful.\\n\\nTranscript:\\n${transcript}`;
+        const prompt = `Summarize the following customer support conversation in 1-2 concise sentences. Be direct and helpful.\n\nTranscript:\n${transcript}`;
 
         const aiSummary = await generateContent(prompt);
 
@@ -57,21 +58,40 @@ export function startAiWorkers(io: Server) {
     // DRAFT WORKER
     new Worker('ai-draft', async (job: Job) => {
         const { conversationId } = job.data;
+
         const conversation = await prisma.conversation.findUnique({
             where: { id: conversationId },
             include: {
-                messages: { orderBy: { createdAt: 'asc' } },
+                messages: {
+                    where: { isAiDraft: false },
+                    orderBy: { createdAt: 'asc' }
+                },
                 contact: true
             }
         });
 
-        if (!conversation) return;
+        if (!conversation || conversation.messages.length === 0) return;
 
-        const transcript = conversation.messages
-            .map(m => `${m.senderType.toUpperCase()}: ${m.body}`)
-            .join('\\n');
+        let prompt = '';
 
-        const prompt = `You are a helpful customer support agent. Below is the transcript of a conversation. Write a polite, helpful reply to the customer (CONTACT). Keep it relatively brief.\\n\\nTranscript:\\n${transcript}\\n\\nAgent draft reply:`;
+        if (conversation.aiSummary && conversation.aiSummaryAt) {
+            const summaryAt = conversation.aiSummaryAt;
+
+            const messagesAfterSummary = conversation.messages.filter(
+                (m) => m.createdAt > summaryAt
+            );
+
+            const recentMessages = messagesAfterSummary.length > 0 ? messagesAfterSummary
+                : [conversation.messages[conversation.messages.length - 1]];
+
+            const recentTranscript = recentMessages.map((m) => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
+
+            prompt = `You are a helpful customer support agent. Below is the summary of the previous conversation and any new messages received since. Write a polite, helpful reply to the customer. Keep it relatively brief.\n\nPrevious Conversation Summary:\n${conversation.aiSummary}\n\nNew Messages:\n${recentTranscript}\n\nAgent draft reply:`;
+        } else {
+            const transcript = conversation.messages.map((m) => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
+
+            prompt = `You are a helpful customer support agent. Below is the transcript of a conversation. Write a polite, helpful reply to the customer. Keep it relatively brief.\n\nTranscript:\n${transcript}\n\nAgent draft reply:`;
+        }
 
         const draftText = await generateContent(prompt);
 
