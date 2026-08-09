@@ -96,6 +96,11 @@ export function startAiWorkers(io: Server) {
         const draftText = await generateContent(prompt);
 
         if (draftText) {
+            // Delete old AI drafts for this conversation to prevent accumulation
+            await prisma.message.deleteMany({
+                where: { conversationId, isAiDraft: true }
+            });
+
             const message = await prisma.message.create({
                 data: {
                     conversationId,

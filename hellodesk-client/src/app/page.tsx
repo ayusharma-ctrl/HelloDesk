@@ -14,8 +14,13 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-6 py-12">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-xl p-8 text-center">
-        {/* App Title with Premium Gradient */}
-        <h1 className="text-4xl font-extrabold tracking-tight mb-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent transition-all duration-300 hover:scale-105 cursor-default select-none">
+        {/* App Logo with Premium Gradient Badge */}
+        <div className="flex justify-center mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-2xl shadow-lg shadow-blue-500/20">
+            H
+          </div>
+        </div>
+        <h1 className="text-3xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent transition-all duration-300 hover:scale-105 cursor-default select-none">
           HelloDesk
         </h1>
         <p className="text-slate-500 text-sm mb-8">

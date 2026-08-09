@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentUser } from '@/features/auth/api/me';
+import { apiClient } from '@/lib/api-client';
 
 interface SocketContextType {
     socket: Socket | null;
@@ -35,12 +36,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         const token = localStorage.getItem('token');
         if (!token || !me) return;
 
-        fetch(`${API_URL}/api/v1/agents/me/status`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status) setAgentStatus(data.status);
+        apiClient.get('/api/v1/agents/me/status')
+            .then(res => {
+                if (res.data?.status) setAgentStatus(res.data.status);
             })
             .catch(console.error);
     }, [me]);
@@ -64,7 +62,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         setSocket(newSocket);
 
         newSocket.on('connect', () => {
-            console.log('SocketConnected as agent');
+            console.log('Socket connected as agent');
         });
 
         newSocket.on('message:created', (data: { conversationId: string; message: any }) => {
@@ -86,6 +84,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             }
             queryClient.invalidateQueries({ queryKey: ['presence', data.workspaceId] });
             queryClient.invalidateQueries({ queryKey: ['team'] });
+        });
+
+        newSocket.on('ai:summary-ready', (data: { conversationId: string; summary: string }) => {
+            queryClient.invalidateQueries({ queryKey: ['ai-summary', data.conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        });
+
+        newSocket.on('ai:draft-ready', (data: { conversationId: string; draft: any }) => {
+            queryClient.invalidateQueries({ queryKey: ['ai-draft', data.conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
         });
 
         newSocket.on('typing:started', (data: { conversationId: string; visitorId?: string; userId?: string }) => {
@@ -110,12 +119,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (!token) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/v1/agents/me/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ status }),
-            });
-            if (res.ok) {
+            const res = await apiClient.patch('/api/v1/agents/me/status', { status });
+            if (res.status === 200) {
                 setAgentStatus(status);
                 if (socket) {
                     socket.emit('presence:update', { workspaceId: me?.workspace?.id, status });

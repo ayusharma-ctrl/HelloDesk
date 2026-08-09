@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useConversations } from '@/features/inbox/api/conversations';
-import { useTeam } from '@/features/team/api/team';
+import { useCurrentUser } from '@/features/auth/api/me';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 export default function InboxPage() {
@@ -11,11 +11,13 @@ export default function InboxPage() {
   const [channelFilter, setChannelFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
 
-  const { data: team } = useTeam();
+  const { data: me } = useCurrentUser();
+  const isAdmin = me?.role === 'admin';
+
   const { data: conversations, isLoading } = useConversations({
     status: statusFilter,
     channel: channelFilter,
-    assignee: assigneeFilter
+    assignee: isAdmin ? assigneeFilter : undefined
   });
 
   return (
@@ -23,7 +25,9 @@ export default function InboxPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Unified Inbox</h1>
-          <p className="text-slate-500 mt-1">Manage and respond to all customer interactions.</p>
+          <p className="text-slate-500 mt-1">
+            {isAdmin ? 'Manage and monitor all workspace customer interactions.' : 'Manage your assigned conversations.'}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
@@ -48,18 +52,19 @@ export default function InboxPage() {
             <option value="chat">Chat</option>
             <option value="email">Email</option>
           </select>
-          <div className="w-px h-6 bg-slate-200"></div>
-          <select
-            value={assigneeFilter}
-            onChange={e => setAssigneeFilter(e.target.value)}
-            className="text-sm border-none bg-transparent font-medium text-slate-700 outline-none cursor-pointer p-1"
-          >
-            <option value="all">All Assignees</option>
-            <option value="unassigned">Unassigned</option>
-            {team?.map((user: any) => (
-              <option key={user.id} value={user.id}>{user.name}</option>
-            ))}
-          </select>
+          {isAdmin && (
+            <>
+              <div className="w-px h-6 bg-slate-200"></div>
+              <select
+                value={assigneeFilter}
+                onChange={e => setAssigneeFilter(e.target.value)}
+                className="text-sm border-none bg-transparent font-medium text-slate-700 outline-none cursor-pointer p-1"
+              >
+                <option value="all">All Assignees</option>
+                <option value="unassigned">Unassigned Only</option>
+              </select>
+            </>
+          )}
         </div>
       </div>
 

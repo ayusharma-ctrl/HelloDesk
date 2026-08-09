@@ -15,7 +15,7 @@ export const updateStatusSchema = z.object({
 });
 
 export const reassignSchema = z.object({
-    assigneeId: z.string().uuid('Invalid assignee id'),
+    assigneeId: z.string().uuid('Invalid assignee id').nullable().optional().or(z.literal('unassigned')),
 });
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

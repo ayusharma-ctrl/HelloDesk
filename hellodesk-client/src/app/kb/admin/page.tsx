@@ -7,6 +7,7 @@ import AdminGuard from '@/components/layout/AdminGuard';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import dynamic from 'next/dynamic';
+import { apiClient } from '@/lib/api-client';
 import 'react-quill/dist/quill.snow.css';
 
 const ReactQuill = dynamic(() => import('react-quill'), { ssr: false });
@@ -30,46 +31,30 @@ export default function KnowledgeBaseAdminPage() {
     const { data: categories = [], isLoading: isLoadingCategories } = useQuery({
         queryKey: ['kb-categories'],
         queryFn: async () => {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/categories`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
-            if (!res.ok) throw new Error('Failed to fetch categories');
-            const data = await res.json();
-            return data.categories;
+            const res = await apiClient.get('/api/v1/kb/categories');
+            return res.data.categories;
         }
     });
 
     const { data: articles = [], isLoading: isLoadingArticles } = useQuery({
         queryKey: ['kb-articles'],
         queryFn: async () => {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/articles`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
-            if (!res.ok) throw new Error('Failed to fetch articles');
-            const data = await res.json();
-            return data.articles;
+            const res = await apiClient.get('/api/v1/kb/articles');
+            return res.data.articles;
         }
     });
 
     const deleteArticleMutation = useMutation({
         mutationFn: async ({ articleId }: { articleId: string }) => {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/articles/${articleId}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
-            if (!res.ok) throw new Error('Failed to delete');
+            await apiClient.delete(`/api/v1/kb/articles/${articleId}`);
         },
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kb-articles'] })
     });
 
     const saveCategoryMutation = useMutation({
         mutationFn: async (payload: { name: string, slug: string }) => {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/categories`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('Failed to create category');
+            const res = await apiClient.post('/api/v1/kb/categories', payload);
+            return res.data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['kb-categories'] });
@@ -81,13 +66,13 @@ export default function KnowledgeBaseAdminPage() {
 
     const saveArticleMutation = useMutation({
         mutationFn: async (payload: any) => {
-            const url = editArticleId ? `${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/articles/${editArticleId}` : `${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/kb/articles`;
-            const res = await fetch(url, {
-                method: editArticleId ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('Failed to save article');
+            if (editArticleId) {
+                const res = await apiClient.put(`/api/v1/kb/articles/${editArticleId}`, payload);
+                return res.data;
+            } else {
+                const res = await apiClient.post('/api/v1/kb/articles', payload);
+                return res.data;
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['kb-articles'] });

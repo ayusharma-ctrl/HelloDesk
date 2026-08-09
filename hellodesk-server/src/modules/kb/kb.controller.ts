@@ -5,8 +5,10 @@ import * as kbService from './kb.service.js';
 export async function publicSearch(req: Request, res: Response) {
     try {
         const q = String(req.query.q ?? '');
-        const articles = await kbService.publicSearch(q);
-        return res.json({ articles });
+        const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : undefined;
+        const host = req.headers['x-forwarded-host'] ? String(req.headers['x-forwarded-host']) : req.headers.host;
+        const { articles, workspace } = await kbService.publicSearch(q, workspaceId, host);
+        return res.json({ articles, workspace });
     } catch (err: any) {
         return res.status(500).json({ error: 'Server error' });
     }
@@ -15,7 +17,9 @@ export async function publicSearch(req: Request, res: Response) {
 export async function publicGetBySlug(req: Request, res: Response) {
     try {
         const slug = Array.isArray(req.params.slug) ? req.params.slug[0] : req.params.slug;
-        const article = await kbService.publicGetBySlug(slug);
+        const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : undefined;
+        const host = req.headers['x-forwarded-host'] ? String(req.headers['x-forwarded-host']) : req.headers.host;
+        const article = await kbService.publicGetBySlug(slug, workspaceId, host);
         return res.json({ article });
     } catch (err: any) {
         return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });

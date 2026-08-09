@@ -11,7 +11,7 @@ function calculateEWT(position: number): number {
 
 export async function assignConversation(conversationId: string, workspaceId: string): Promise<boolean> {
     const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId } });
-    if (!conversation || conversation.status !== 'open') return false;
+    if (!conversation || (conversation.status !== 'open' && conversation.status !== 'pending')) return false;
 
     // 1. Get all active agents in the workspace
     const agents = await prisma.user.findMany({

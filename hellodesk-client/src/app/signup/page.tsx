@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { apiClient } from '@/lib/api-client';
 
 export default function SignupPage() {
   const [loading, setLoading] = useState(false);
@@ -16,32 +17,37 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
     const form = new FormData(event.currentTarget);
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001'}/api/v1/auth/signup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+
+    try {
+      const response = await apiClient.post('/api/v1/auth/signup', {
         email: form.get('email'),
         password: form.get('password'),
         name: form.get('name'),
         workspaceName: form.get('workspaceName')
-      })
-    });
-
-    const data = await response.json();
-    setLoading(false);
-    if (!response.ok) {
-      setError(data.error ?? 'Signup failed');
-      return;
+      });
+      localStorage.setItem('token', response.data.token);
+      router.push('/inbox');
+    } catch (err: any) {
+      setError(err.response?.data?.error ?? 'Signup failed');
+    } finally {
+      setLoading(false);
     }
-    localStorage.setItem('token', data.token);
-    router.push('/inbox');
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 p-8">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Create a Workspace</h1>
-        <p className="text-slate-500 mb-6">Get started with HelloDesk today.</p>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+            H
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">HelloDesk</h2>
+            <p className="text-xs text-slate-500">Customer Support Platform</p>
+          </div>
+        </div>
+        <h1 className="text-2xl font-bold text-slate-900 mb-1">Create a Workspace</h1>
+        <p className="text-slate-500 text-sm mb-6">Get started with your team today.</p>
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div>

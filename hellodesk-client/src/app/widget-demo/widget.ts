@@ -5,6 +5,7 @@
     const currentScript = document.currentScript as HTMLScriptElement | null;
     const workspaceId = currentScript?.getAttribute('data-workspace-id') ?? 'demo-workspace';
     const apiBase = (currentScript?.getAttribute('data-api-base') ?? 'http://localhost:3001').replace(/\/$/, '');
+    const appHost = currentScript?.src ? new URL(currentScript.src).origin : 'http://localhost:3000';
     const rootId = 'hellodesk-widget-root';
 
     // Persistent visitor identity
@@ -20,6 +21,7 @@
     let isTyping = false;
     let typingTimeout: ReturnType<typeof setTimeout> | null = null;
     let widgetVisible = false;
+    let currentAssigneeName: string | null = null;
 
     // ─── Load Socket.IO ────────────────────────────────────────────────
     function loadSocketIO(): Promise<void> {
@@ -46,7 +48,7 @@
         bubble.textContent = msg.body;
         wrapper.appendChild(bubble);
 
-        const timeStr = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const timeStr = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
         const footer = document.createElement('div');
         footer.style.cssText = `font-size:10px;margin-top:4px;display:flex;gap:6px;align-items:center;${isAgent ? 'color:#94a3b8;justify-content:flex-start;' : 'color:#93c5fd;justify-content:flex-end;'}`;
@@ -111,11 +113,11 @@
           </div>
 
           <div id="hd-queue-banner" style="display:none;background:#fffbeb;color:#b45309;padding:10px 14px;font-size:13px;border-bottom:1px solid #fef3c7;text-align:center;flex-shrink:0;">
-            You're <strong id="hd-queue-pos"></strong> in queue — estimated wait: <span id="hd-queue-time"></span> min
+            You're <strong id="hd-queue-pos">#1</strong> in queue — estimated wait: <span id="hd-queue-time">2</span> min
           </div>
 
           <div id="hd-messages" style="flex:1;padding:16px;overflow-y:auto;background:#f8fafc;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;">
-            <div style="align-self:flex-start;max-width:85%;">
+            <div id="hd-greeting" style="align-self:flex-start;max-width:85%;">
               <div style="padding:10px 14px;border-radius:12px;border-bottom-left-radius:4px;background:#e2e8f0;color:#0f172a;font-size:14px;line-height:1.45;">
                 👋 Hi there! How can we help you today?
               </div>
@@ -124,7 +126,7 @@
 
           <div id="hd-typing-indicator" style="display:none;padding:6px 16px;background:#f8fafc;font-size:12px;color:#64748b;font-style:italic;flex-shrink:0;">Agent is typing…</div>
 
-          <div id="hd-kb-suggestions" style="display:none;padding:10px 14px;background:#fff;border-top:1px solid #e2e8f0;max-height:110px;overflow-y:auto;flex-shrink:0;">
+          <div id="hd-kb-suggestions" style="display:none;padding:10px 14px;background:#fff;border-top:1px solid #e2e8f0;max-height:120px;overflow-y:auto;flex-shrink:0;">
             <p style="font-size:11px;color:#94a3b8;margin:0 0 6px;text-transform:uppercase;font-weight:600;">Suggested Articles</p>
             <ul id="hd-kb-list" style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;"></ul>
           </div>
@@ -144,8 +146,9 @@
             </div>
           </div>
           
-          <div id="hd-email-success-area" style="display:none;padding:16px;text-align:center;color:#15803d;background:#f0fdf4;border-top:1px solid #bbf7d0;font-weight:600;font-size:14px;flex-shrink:0;">
-            We have received your query and our team will reply to your email in the next 24hrs.
+          <div id="hd-email-success-area" style="display:none;padding:16px;text-align:center;color:#15803d;background:#f0fdf4;border-top:1px solid #bbf7d0;font-size:13px;flex-shrink:0;">
+            <p style="margin:0 0 8px;font-weight:600;">We have received your query and our team will reply to your email in the next 24hrs.</p>
+            <button id="hd-reset-chat-btn" style="background:#2563eb;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Send another message</button>
           </div>
         `;
 
@@ -183,6 +186,7 @@
         const emailInput = panel.querySelector('#hd-email-input') as HTMLInputElement;
         const emailBodyEl = panel.querySelector('#hd-email-body') as HTMLTextAreaElement;
         const emailSuccessArea = panel.querySelector('#hd-email-success-area') as HTMLDivElement;
+        const resetChatBtn = panel.querySelector('#hd-reset-chat-btn') as HTMLButtonElement;
         const kbSuggestionsEl = panel.querySelector('#hd-kb-suggestions') as HTMLDivElement;
         const kbListEl = panel.querySelector('#hd-kb-list') as HTMLUListElement;
         const minimizeBtn = panel.querySelector('#hd-minimize') as HTMLButtonElement;
@@ -193,18 +197,24 @@
             emailSuccessArea.style.display = 'block';
         }
 
+        resetChatBtn?.addEventListener('click', () => {
+            localStorage.removeItem('hellodesk-email-fallback-sent');
+            emailFallbackSent = false;
+            emailSuccessArea.style.display = 'none';
+            chatInputArea.style.display = 'flex';
+        });
+
         // ── Toggle open/close ──────────────────────────────────────────
         function openPanel() {
             widgetVisible = true;
             panel.style.display = 'flex';
-            // Next tick to trigger animation
             requestAnimationFrame(() => {
                 panel.style.opacity = '1';
                 panel.style.transform = 'translateY(0)';
             });
             fab.innerHTML = '✕';
             fab.setAttribute('aria-label', 'Close chat');
-            updateStatus();
+            void updateStatus();
         }
 
         function closePanel() {
@@ -225,10 +235,24 @@
             auth: { type: 'visitor', visitorId, workspaceId }
         });
 
+        socket.on('connect', () => {
+            void updateStatus();
+        });
+
         socket.on('message:created', (data: any) => {
-            if (data.message?.senderType === 'agent') {
-                messagesEl.appendChild(renderMessage(data.message));
-                messagesEl.scrollTop = messagesEl.scrollHeight;
+            if (data.message?.senderType === 'agent' && !data.message?.isAiDraft) {
+                if (widgetVisible) {
+                    void updateStatus();
+                } else {
+                    messagesEl.appendChild(renderMessage(data.message));
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+            }
+        });
+
+        socket.on('presence:changed', (data: any) => {
+            if (data.workspaceId === workspaceId) {
+                void updateStatus();
             }
         });
 
@@ -236,7 +260,11 @@
         socket.on('typing:stopped', () => { typingIndicator.style.display = 'none'; });
 
         socket.on('conversation:updated', (data: any) => {
-            if (data.conversationId === conversationId) {
+            if (data.conversationId === conversationId || data.conversation?.id === conversationId || data.conversation?.contact?.visitorId === visitorId) {
+                if (!conversationId && data.conversation?.id) {
+                    conversationId = String(data.conversation.id);
+                    localStorage.setItem('hellodesk-conversation-id', conversationId);
+                }
                 void updateStatus();
             }
         });
@@ -275,89 +303,118 @@
 
         // ── Fetch & display status / history ──────────────────────────
         async function updateStatus() {
+            let isAgentsOnline = false;
             try {
                 const agentRes = await fetch(`${apiBase}/api/v1/widget/status?workspaceId=${workspaceId}`);
                 if (agentRes.ok) {
                     const { online } = await agentRes.json();
-                    presenceEl.textContent = online ? '🟢 Agents available' : '⚪ We are away';
-                    noAgentsBanner.style.display = online ? 'none' : 'block';
+                    isAgentsOnline = Boolean(online);
                 }
-            } catch { /* ignore */ }
+            } catch {
+                isAgentsOnline = false;
+            }
 
-            if (!conversationId) return;
+            if (!conversationId) {
+                presenceEl.textContent = isAgentsOnline ? '🟢 Agents available' : '⚪ We are away';
+                noAgentsBanner.style.display = isAgentsOnline ? 'none' : 'block';
+                queueBanner.style.display = 'none';
+                return;
+            }
+
             try {
                 const res = await fetch(`${apiBase}/api/v1/widget/history?conversationId=${conversationId}&visitorId=${visitorId}`);
                 if (!res.ok) return;
                 const data = await res.json();
 
-                // Rehydrate messages (keep greeting at top)
+                currentAssigneeName = data.assigneeName ?? null;
+
+                // Rehydrate messages
                 while (messagesEl.children.length > 1) messagesEl.removeChild(messagesEl.lastChild!);
                 data.messages?.forEach((m: any) => messagesEl.appendChild(renderMessage(m)));
 
                 if (data.status === 'resolved') {
                     const resolvedMsg = document.createElement('div');
-                    resolvedMsg.style.cssText = 'padding:10px;text-align:center;font-size:12px;color:#64748b;font-weight:600;';
-                    resolvedMsg.textContent = 'This conversation has been resolved.';
+                    resolvedMsg.style.cssText = 'padding:12px;text-align:center;font-size:13px;color:#64748b;font-weight:500;background:#f1f5f9;border-radius:10px;margin:8px 0;';
+                    resolvedMsg.innerHTML = `<div>This conversation has been resolved.</div><button id="hd-new-chat-btn" style="margin-top:6px;background:#2563eb;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Start New Conversation</button>`;
                     messagesEl.appendChild(resolvedMsg);
                     chatInputArea.style.display = 'none';
-                } else if (data.status === 'open' && data.assigneeName) {
-                    const joinedMsg = document.createElement('div');
-                    joinedMsg.style.cssText = 'padding:10px;text-align:center;font-size:12px;color:#2563eb;font-weight:600;background:#eff6ff;border-radius:12px;margin:8px 0;';
-                    joinedMsg.textContent = `${data.assigneeName} has joined the chat.`;
-                    messagesEl.appendChild(joinedMsg);
+                    queueBanner.style.display = 'none';
+                    noAgentsBanner.style.display = 'none';
+                    presenceEl.textContent = '⚪ Resolved';
+
+                    const newChatBtn = resolvedMsg.querySelector('#hd-new-chat-btn');
+                    newChatBtn?.addEventListener('click', () => {
+                        localStorage.removeItem('hellodesk-conversation-id');
+                        conversationId = null;
+                        currentAssigneeName = null;
+                        while (messagesEl.children.length > 1) messagesEl.removeChild(messagesEl.lastChild!);
+                        chatInputArea.style.display = 'flex';
+                        void updateStatus();
+                    });
+                } else if (data.status === 'open') {
+                    presenceEl.textContent = data.assigneeName ? `🟢 ${data.assigneeName}` : (isAgentsOnline ? '🟢 Agents available' : '⚪ We are away');
+                    noAgentsBanner.style.display = 'none';
+                    queueBanner.style.display = 'none';
+                    chatInputArea.style.display = 'flex';
+                } else if (data.status === 'pending') {
+                    noAgentsBanner.style.display = 'none';
+                    queueBanner.style.display = 'block';
+                    queuePosEl.textContent = `#${data.position ?? '1'}`;
+                    queueTimeEl.textContent = `${Math.max(1, Math.ceil((data.estimatedWaitSeconds ?? 120) / 60))}`;
+                    presenceEl.textContent = '🟡 Waiting for agent...';
                     chatInputArea.style.display = 'flex';
                 } else {
+                    presenceEl.textContent = isAgentsOnline ? '🟢 Agents available' : '⚪ We are away';
+                    noAgentsBanner.style.display = isAgentsOnline ? 'none' : 'block';
+                    queueBanner.style.display = 'none';
                     chatInputArea.style.display = 'flex';
                 }
 
                 messagesEl.scrollTop = messagesEl.scrollHeight;
-
-                if (data.status === 'pending' && data.position != null) {
-                    queueBanner.style.display = 'block';
-                    queuePosEl.textContent = `#${data.position}`;
-                    queueTimeEl.textContent = `${Math.ceil((data.estimatedWaitSeconds ?? 0) / 60)}`;
-                } else {
-                    queueBanner.style.display = 'none';
-                }
             } catch { /* ignore */ }
         }
 
-        // ── Typing indicator ───────────────────────────────────────────
+        // ── Typing indicator & Debounced KB Suggestions ───────────────
         let kbDebounce: ReturnType<typeof setTimeout> | null = null;
 
         inputEl.addEventListener('input', () => {
-            if (!conversationId) return;
-
-            if (!isTyping) {
-                isTyping = true;
-                socket.emit('typing:start', { conversationId, visitorId });
-            }
-            if (typingTimeout) clearTimeout(typingTimeout);
-            typingTimeout = setTimeout(() => {
-                isTyping = false;
-                socket.emit('typing:stop', { conversationId, visitorId });
-            }, 2000);
-
-            if (kbDebounce) clearTimeout(kbDebounce);
-            kbDebounce = setTimeout(async () => {
-                const q = inputEl.value.trim();
-                if (q.length > 3) {
-                    const res = await fetch(`${apiBase}/api/v1/widget/kb-suggestions?workspaceId=${workspaceId}&q=${encodeURIComponent(q)}`);
-                    if (res.ok) {
-                        const { articles } = await res.json();
-                        if (articles?.length > 0) {
-                            kbSuggestionsEl.style.display = 'block';
-                            kbListEl.innerHTML = articles.slice(0, 2).map((a: any) =>
-                                `<li><a href="/kb/article/${a.slug}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;display:block;padding:3px 0;">📄 ${a.title}</a></li>`
-                            ).join('');
-                        } else {
-                            kbSuggestionsEl.style.display = 'none';
-                        }
-                    }
-                } else {
-                    kbSuggestionsEl.style.display = 'none';
+            if (conversationId) {
+                if (!isTyping) {
+                    isTyping = true;
+                    socket.emit('typing:start', { conversationId, visitorId });
                 }
-            }, 500);
+                if (typingTimeout) clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => {
+                    isTyping = false;
+                    socket.emit('typing:stop', { conversationId, visitorId });
+                }, 2000);
+            }
+
+            // Only fetch KB suggestions if no agent is assigned yet
+            if (!currentAssigneeName) {
+                if (kbDebounce) clearTimeout(kbDebounce);
+                kbDebounce = setTimeout(async () => {
+                    const q = inputEl.value.trim();
+                    if (q.length >= 3) {
+                        try {
+                            const res = await fetch(`${apiBase}/api/v1/widget/kb-suggestions?workspaceId=${workspaceId}&q=${encodeURIComponent(q)}`);
+                            if (res.ok) {
+                                const { articles } = await res.json();
+                                if (articles && articles.length > 0) {
+                                    kbSuggestionsEl.style.display = 'block';
+                                    kbListEl.innerHTML = articles.slice(0, 2).map((a: any) =>
+                                        `<li><a href="${appHost}/kb/article/${a.slug}?workspaceId=${encodeURIComponent(workspaceId)}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;display:block;padding:4px 0;font-weight:500;">📄 ${a.title}</a></li>`
+                                    ).join('');
+                                    return;
+                                }
+                            }
+                        } catch { /* ignore */ }
+                    }
+                    kbSuggestionsEl.style.display = 'none';
+                }, 600);
+            } else {
+                kbSuggestionsEl.style.display = 'none';
+            }
         });
 
         // ── Send message ───────────────────────────────────────────────
@@ -380,7 +437,7 @@
                 conversationId = data.conversation?.id ?? null;
                 if (conversationId) {
                     localStorage.setItem('hellodesk-conversation-id', conversationId);
-                    updateStatus();
+                    void updateStatus();
                 }
             } else {
                 await fetch(`${apiBase}/api/v1/widget/messages`, {

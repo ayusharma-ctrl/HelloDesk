@@ -1,44 +1,60 @@
 import { prisma } from '../../lib/prisma.js';
 import type { CreateCategoryInput, CreateArticleInput, UpdateArticleInput } from './kb.schema.js';
 
-export async function publicSearch(q: string) {
-    const query = q.trim();
-
-    if (!query) {
-        return prisma.article.findMany({
-            where: {
-                status: 'published',
-                workspace: { isActive: true },
-            },
-            include: { category: true },
-            orderBy: { updatedAt: 'desc' },
-            take: 10,
-        });
+async function resolveWorkspace(workspaceId?: string, host?: string): Promise<{ id: string; name: string } | null> {
+    if (workspaceId) {
+        const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } });
+        if (ws) return ws;
     }
-
-    return prisma.article.findMany({
-        where: {
-            status: 'published',
-            workspace: { isActive: true },
-            OR: [
-                { title: { contains: query, mode: 'insensitive' } },
-                { content: { contains: query, mode: 'insensitive' } },
-                { slug: { contains: query, mode: 'insensitive' } },
-            ],
-        },
-        include: { category: true },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-    });
+    if (host) {
+        const cleanHost = host.split(':')[0].toLowerCase();
+        const customDomain = await prisma.customDomain.findFirst({
+            where: { domain: cleanHost, verificationStatus: 'verified' },
+            include: { workspace: { select: { id: true, name: true } } }
+        });
+        if (customDomain?.workspace) return customDomain.workspace;
+    }
+    return null;
 }
 
-export async function publicGetBySlug(slug: string) {
+export async function publicSearch(q: string, workspaceId?: string, host?: string) {
+    const query = q.trim();
+    const ws = await resolveWorkspace(workspaceId, host);
+
+    const where: any = {
+        status: 'published',
+        workspace: { isActive: true },
+        ...(ws ? { workspaceId: ws.id } : {})
+    };
+
+    if (query) {
+        where.OR = [
+            { title: { contains: query, mode: 'insensitive' } },
+            { content: { contains: query, mode: 'insensitive' } },
+            { slug: { contains: query, mode: 'insensitive' } },
+        ];
+    }
+
+    const articles = await prisma.article.findMany({
+        where,
+        include: { category: true, workspace: { select: { id: true, name: true } } },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+    });
+
+    return { articles, workspace: ws };
+}
+
+export async function publicGetBySlug(slug: string, workspaceId?: string, host?: string) {
+    const ws = await resolveWorkspace(workspaceId, host);
+
     const article = await prisma.article.findFirst({
         where: {
             slug,
             status: 'published',
+            ...(ws ? { workspaceId: ws.id } : {})
         },
-        include: { category: true }
+        include: { category: true, workspace: { select: { id: true, name: true } } }
     });
 
     if (!article) {

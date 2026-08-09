@@ -24,7 +24,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.APP_BASE_URL,
+    origin: true,
     credentials: true,
   },
 });
@@ -37,18 +37,7 @@ startAiWorkers(io);
 app.set('io', io);
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no Origin (e.g. Postman, server-to-server)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      if (origin === process.env.APP_BASE_URL) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("Not allowed by CORS"));
-    },
+    origin: true,
     credentials: true,
   })
 );
@@ -125,7 +114,9 @@ io.on('connection', (socket) => {
     socket.join(`visitor:${socket.data.visitorId}`);
   } else if (socket.data.workspaceId && socket.data.userId) {
     socket.join(`workspace:${socket.data.workspaceId}`);
-    void setAgentStatus(socket.data.workspaceId, socket.data.userId, 'available');
+    void setAgentStatus(socket.data.workspaceId, socket.data.userId, 'available').then(() => {
+      import('./modules/assignment/assignment.service.js').then(mod => mod.processQueue(socket.data.workspaceId!)).catch(console.error);
+    });
     io.to(`workspace:${socket.data.workspaceId}`).emit('presence:changed', {
       workspaceId: socket.data.workspaceId,
       userId: socket.data.userId,
@@ -141,6 +132,7 @@ io.on('connection', (socket) => {
     socket.data.workspaceId = targetWorkspaceId;
     if (socket.data.userId) {
       await setAgentStatus(targetWorkspaceId, socket.data.userId, 'available');
+      import('./modules/assignment/assignment.service.js').then(mod => mod.processQueue(targetWorkspaceId)).catch(console.error);
       io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', {
         workspaceId: targetWorkspaceId,
         userId: socket.data.userId,
@@ -154,6 +146,9 @@ io.on('connection', (socket) => {
     const targetWorkspaceId = workspaceId ?? socket.data.workspaceId;
     if (!targetWorkspaceId || !socket.data.userId || !status) return;
     await setAgentStatus(targetWorkspaceId, socket.data.userId, status);
+    if (status === 'available') {
+      import('./modules/assignment/assignment.service.js').then(mod => mod.processQueue(targetWorkspaceId)).catch(console.error);
+    }
     io.to(`workspace:${targetWorkspaceId}`).emit('presence:changed', {
       workspaceId: targetWorkspaceId,
       userId: socket.data.userId,

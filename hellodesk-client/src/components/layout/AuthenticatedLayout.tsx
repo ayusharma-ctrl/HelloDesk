@@ -51,8 +51,13 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
         <>
             {/* Logo */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-                <Link href="/inbox" onClick={() => setSidebarOpen(false)} className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-                    HelloDesk
+                <Link href="/" onClick={() => setSidebarOpen(false)} className="flex items-center gap-2.5 group">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
+                        H
+                    </div>
+                    <span className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+                        HelloDesk
+                    </span>
                 </Link>
                 <button
                     className="lg:hidden text-slate-400 hover:text-slate-700 transition-colors"
@@ -138,7 +143,14 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
                     </button>
-                    <span className="font-bold text-blue-600 text-lg">HelloDesk</span>
+                    <Link href="/" className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                            H
+                        </div>
+                        <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                            HelloDesk
+                        </span>
+                    </Link>
                 </header>
 
                 <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">

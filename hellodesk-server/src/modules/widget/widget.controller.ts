@@ -79,6 +79,6 @@ export async function getStatus(req: Request, res: Response) {
         const online = await widgetService.getStatus(workspaceId);
         return res.json({ online });
     } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+        return res.json({ online: false });
     }
 }

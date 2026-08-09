@@ -52,7 +52,7 @@ export async function startConversation(input: StartConversationInput) {
 export async function sendMessage(input: SendWidgetMessageInput) {
     const conversation = await prisma.conversation.findUnique({
         where: { id: input.conversationId },
-        include: { contact: true }
+        include: { contact: true, assignee: true }
     });
     if (!conversation) {
         const err = new Error('Conversation not found') as any;
@@ -60,14 +60,33 @@ export async function sendMessage(input: SendWidgetMessageInput) {
         throw err;
     }
 
+    if (conversation.status === 'resolved') {
+        const err = new Error('This conversation has been resolved.') as any;
+        err.status = 400;
+        throw err;
+    }
+
     const message = await prisma.message.create({
         data: { conversationId: input.conversationId, senderType: 'contact', body: input.body },
     });
 
+    // Auto-unsnooze if conversation was snoozed
+    const nextStatus = conversation.status === 'snoozed' ? 'open' : conversation.status;
+
     await prisma.conversation.update({
         where: { id: input.conversationId },
-        data: { lastMessageId: message.id, updatedAt: new Date() },
+        data: {
+            lastMessageId: message.id,
+            status: nextStatus,
+            snoozedUntil: nextStatus === 'open' ? null : conversation.snoozedUntil,
+            updatedAt: new Date()
+        },
     });
+
+    // If conversation was unassigned or in queue, re-attempt assignment
+    if (!conversation.assigneeId) {
+        await assignmentService.assignConversation(conversation.id, conversation.workspaceId);
+    }
 
     import('../../services/ai.worker.js').then(mod => {
         mod.requestAiSummary(input.conversationId);
@@ -89,13 +108,17 @@ export async function getHistory(conversationId: string, visitorId: string) {
 
     // Mark agent messages as read when visitor retrieves history
     const updateResult = await prisma.message.updateMany({
-        where: { conversationId, senderType: 'agent', readAt: null },
+        where: { conversationId, senderType: 'agent', isAiDraft: false, readAt: null },
         data: { readAt: new Date() },
     });
 
     const refreshed = await prisma.conversation.findFirst({
         where: { id: conversationId, contactId: contact.id },
-        include: { contact: true, assignee: true, messages: { orderBy: { createdAt: 'asc' } } },
+        include: {
+            contact: true,
+            assignee: true,
+            messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'asc' } }
+        },
     });
 
     if (updateResult.count > 0) {
@@ -135,6 +158,11 @@ export async function kbSuggestions(q: string, workspaceId?: string) {
 }
 
 export async function getStatus(workspaceId: string) {
-    const agents = await listAgentStatuses(workspaceId);
-    return agents.some(a => a.status === 'available');
+    if (!workspaceId) return false;
+    try {
+        const agents = await listAgentStatuses(workspaceId);
+        return agents.some(a => a.status === 'available' || a.status === 'busy');
+    } catch {
+        return false;
+    }
 }
