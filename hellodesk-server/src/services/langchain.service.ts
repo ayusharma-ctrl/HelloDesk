@@ -60,9 +60,10 @@ export async function executeLlmTask(
 ): Promise<LlmExecutionResult | null> {
     const startTime = Date.now();
 
-    // 1. Check workspace master AI toggle
+    // 1. Check workspace master AI toggle & Tier Limit
     const workspace = await prisma.workspace.findUnique({
         where: { id: workspaceId },
+        include: { workspaceTier: true }
     });
 
     if (!workspace || !workspace.aiEnabled) {
@@ -90,15 +91,16 @@ export async function executeLlmTask(
     let apiKey = selectedModel ? selectedModel.apiKey : (process.env.GEMINI_API_KEY || '');
     let isSystemFallback = !selectedModel;
 
-    // If using System Fallback, check workspace free tier limits (10% token allowance)
+    // If using System Fallback, check workspace tier limit from workspaceTier table
     if (isSystemFallback) {
         if (!apiKey) {
             logger.warn('No LLM API key available for fallback');
             return null;
         }
 
-        if (workspace.tier === 'free' && workspace.freeTierTokensUsed >= workspace.freeTierTokenLimit) {
-            logger.warn({ workspaceId }, 'Free tier token limit reached for workspace system fallback');
+        const tokenLimit = workspace.workspaceTier?.tokenLimit ?? 50000;
+        if (workspace.freeTierTokensUsed >= tokenLimit) {
+            logger.warn({ workspaceId, tier: workspace.tierKey, used: workspace.freeTierTokensUsed, limit: tokenLimit }, 'Workspace fallback token limit reached');
             // Log attempt
             await prisma.llmRequestLog.create({
                 data: {
@@ -109,7 +111,7 @@ export async function executeLlmTask(
                     taskType,
                     latencyMs: Date.now() - startTime,
                     status: 'rate_limited',
-                    errorMessage: 'Free tier workspace token allowance reached (10% limit)',
+                    errorMessage: `Workspace ${workspace.workspaceTier?.name || workspace.tierKey} tier fallback token limit reached (${tokenLimit.toLocaleString()} tokens)`,
                 }
             });
             return null;
@@ -142,7 +144,7 @@ export async function executeLlmTask(
                     totalTokensUsed: { increment: totalTokens }
                 }
             });
-        } else if (isSystemFallback && workspace.tier === 'free') {
+        } else if (isSystemFallback) {
             await prisma.workspace.update({
                 where: { id: workspaceId },
                 data: { freeTierTokensUsed: { increment: totalTokens } }

@@ -9,10 +9,10 @@ export async function listModels(req: Request, res: Response) {
             where: { id: workspaceId },
             select: {
                 aiEnabled: true,
-                tier: true,
+                tierKey: true,
                 freeTierTokensUsed: true,
-                freeTierTokenLimit: true,
                 freeTierResetAt: true,
+                workspaceTier: true,
             }
         });
 
@@ -50,9 +50,16 @@ export async function addModel(req: Request, res: Response) {
         const { provider, modelName, apiKey } = req.body;
         const workspaceId = req.user!.workspaceId;
 
+        const workspace = await prisma.workspace.findUnique({
+            where: { id: workspaceId },
+            include: { workspaceTier: true }
+        });
+
+        const maxModels = workspace?.workspaceTier?.maxCustomModels ?? 3;
         const count = await prisma.llmModel.count({ where: { workspaceId } });
-        if (count >= 5) {
-            return res.status(400).json({ error: 'Workspace limit reached: Max 5 LLM models allowed' });
+
+        if (count >= maxModels) {
+            return res.status(400).json({ error: `Workspace tier limit reached: Max ${maxModels} LLM models allowed on ${workspace?.workspaceTier?.name || workspace?.tierKey} tier` });
         }
 
         // Test credentials before adding

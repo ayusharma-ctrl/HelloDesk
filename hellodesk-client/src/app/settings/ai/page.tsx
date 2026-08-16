@@ -33,12 +33,20 @@ interface LlmLog {
     createdAt: string;
 }
 
+interface WorkspaceTier {
+    key: string;
+    name: string;
+    tokenLimit: number;
+    tokenPercent: number;
+    maxCustomModels: number;
+}
+
 interface WorkspaceAiInfo {
     aiEnabled: boolean;
-    tier: string;
+    tierKey: string;
     freeTierTokensUsed: number;
-    freeTierTokenLimit: number;
     freeTierResetAt?: string | null;
+    workspaceTier?: WorkspaceTier;
 }
 
 export default function AiSettingsPage() {
@@ -141,7 +149,9 @@ export default function AiSettingsPage() {
         }
     };
 
-    const freeTierPercent = workspace ? Math.min(100, Math.round((workspace.freeTierTokensUsed / workspace.freeTierTokenLimit) * 100)) : 0;
+    const tokenLimit = workspace?.workspaceTier?.tokenLimit ?? 50000;
+    const maxCustomModels = workspace?.workspaceTier?.maxCustomModels ?? 3;
+    const freeTierPercent = workspace ? Math.min(100, Math.round((workspace.freeTierTokensUsed / tokenLimit) * 100)) : 0;
 
     return (
         <AdminGuard>
@@ -149,8 +159,15 @@ export default function AiSettingsPage() {
                 <div className="max-w-5xl mx-auto space-y-6">
                     <div className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4">
                         <div>
-                            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">AI Models & Observability</h1>
-                            <p className="text-slate-500 mt-1">Configure custom LLM models (LangChain unified), monitor token usage, and track request logs.</p>
+                            <div className="flex items-center gap-2 mb-1">
+                                <h1 className="text-3xl font-bold text-slate-900 tracking-tight">AI Models & Observability</h1>
+                                {workspace?.workspaceTier && (
+                                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white uppercase tracking-wider shadow-sm">
+                                        {workspace.workspaceTier.name} Tier
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-slate-500 text-sm">Configure custom LLM models (LangChain unified), monitor token usage, and track request logs.</p>
                         </div>
                         {workspace && (
                             <div className="flex items-center gap-3 bg-white p-2.5 px-4 rounded-xl border border-slate-200 shadow-sm">
@@ -170,15 +187,17 @@ export default function AiSettingsPage() {
                         <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-2">
                                 <span className="text-lg">⚡</span>
-                                <h3 className="font-bold text-blue-900 text-sm">System Fallback Model Allowance (Gemini 2.5 Flash Free Tier)</h3>
+                                <h3 className="font-bold text-blue-900 text-sm">
+                                    System Fallback Allowance ({workspace?.workspaceTier?.name || 'Basic'} Tier: {workspace?.workspaceTier?.tokenPercent ?? 5}% / {tokenLimit.toLocaleString()} Tokens)
+                                </h3>
                             </div>
-                            <span className="text-xs font-bold text-blue-700">{workspace?.freeTierTokensUsed.toLocaleString()} / {workspace?.freeTierTokenLimit.toLocaleString()} tokens ({freeTierPercent}%)</span>
+                            <span className="text-xs font-bold text-blue-700">{workspace?.freeTierTokensUsed.toLocaleString()} / {tokenLimit.toLocaleString()} tokens ({freeTierPercent}%)</span>
                         </div>
                         <div className="w-full bg-blue-200/60 rounded-full h-2.5 overflow-hidden">
                             <div className={`h-full rounded-full transition-all duration-300 ${freeTierPercent >= 100 ? 'bg-red-500' : freeTierPercent >= 80 ? 'bg-amber-500' : 'bg-blue-600'}`} style={{ width: `${freeTierPercent}%` }} />
                         </div>
                         <p className="text-xs text-blue-800 mt-2">
-                            Free tier workspaces receive a capped 10% allowance of Gemini 2.5 Flash tokens as system fallback. Add your own API keys below to unlock unlimited tokens.
+                            Workspaces on the <strong>{workspace?.workspaceTier?.name || 'Basic'}</strong> tier get a {workspace?.workspaceTier?.tokenPercent ?? 5}% allowance ({tokenLimit.toLocaleString()} tokens) on the default fallback model, and can configure up to <strong>{maxCustomModels} custom models</strong>.
                         </p>
                     </div>
 
@@ -190,14 +209,14 @@ export default function AiSettingsPage() {
                                 <p className="text-xs text-slate-500">Max 5 models. Automatic fallback switches models if 401/429 errors occur.</p>
                             </div>
                             <Button
-                                disabled={models.length >= 5}
+                                disabled={models.length >= maxCustomModels}
                                 onClick={() => {
                                     setShowModal(true);
                                     setIsVerifiedSuccess(false);
                                     setVerifyError('');
                                 }}
                             >
-                                + Add Model ({models.length}/5)
+                                + Add Model ({models.length}/{maxCustomModels})
                             </Button>
                         </div>
 

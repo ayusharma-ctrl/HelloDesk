@@ -9,6 +9,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model WorkspaceTier {
+  id               String   @id @default(uuid())
+  key              String   @unique // "basic", "pro", "advance"
+  name             String   // "Basic (Free)", "Pro", "Advance"
+  tokenLimit       Int      @map("token_limit") // 50,000 (5%), 100,000 (10%), 200,000 (20%)
+  tokenPercent     Int      @map("token_percent") // 5, 10, 20
+  maxCustomModels  Int      @map("max_custom_models") // 3, 5, 10
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  workspaces Workspace[]
+
+  @@map("workspace_tiers")
+}
+
 model Workspace {
   id                 String   @id @default(uuid())
   name               String   @unique
@@ -17,13 +32,13 @@ model Workspace {
   isActive           Boolean  @default(true) @map("is_active")
   theme              Json?    @default("{\"primaryColor\":\"#2563eb\",\"primaryHover\":\"#1d4ed8\",\"accentColor\":\"#4f46e5\",\"bgColor\":\"#f8fafc\",\"cardBg\":\"#ffffff\"}")
   aiEnabled          Boolean  @default(true) @map("ai_enabled")
-  tier               String   @default("free")
+  tierKey            String   @default("basic") @map("tier_key")
   freeTierTokensUsed Int      @default(0) @map("free_tier_tokens_used")
-  freeTierTokenLimit Int      @default(100000) @map("free_tier_token_limit")
   freeTierResetAt    DateTime? @map("free_tier_reset_at")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
+  workspaceTier WorkspaceTier @relation(fields: [tierKey], references: [key], onDelete: Restrict)
   users         User[]
   contacts      Contact[]
   conversations Conversation[]
