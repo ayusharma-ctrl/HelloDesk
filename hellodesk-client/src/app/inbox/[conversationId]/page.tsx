@@ -315,9 +315,14 @@ export default function ConversationDetailPage() {
 
                     {/* AI Smart Features */}
                     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl shadow-sm border border-indigo-100 p-4 flex-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="text-lg">✨</span>
-                            <h3 className="font-semibold text-indigo-900">AI Summary</h3>
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg">✨</span>
+                                <h3 className="font-semibold text-indigo-900">AI Summary</h3>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold border border-indigo-200">
+                                ⚡ {conv.tokensUsed ?? 0} tokens
+                            </span>
                         </div>
                         <div className="text-sm text-indigo-800 bg-white/60 p-3 rounded-lg border border-indigo-100 min-h-[100px]">
                             {aiSummaryData?.aiSummary ? (

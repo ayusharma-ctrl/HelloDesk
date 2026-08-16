@@ -16,6 +16,7 @@ const navItems = [
 const adminItems = [
     { href: '/settings/domains', label: '🌐 Custom Domain' },
     { href: '/settings/theme', label: '🎨 Theme & Branding' },
+    { href: '/settings/ai', label: '🤖 AI & Models' },
     { href: '/kb/admin', label: '✏️ KB Authoring' },
 ];
 

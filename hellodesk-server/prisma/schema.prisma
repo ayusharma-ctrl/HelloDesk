@@ -10,14 +10,19 @@ datasource db {
 }
 
 model Workspace {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  shortName String?  @map("short_name")
-  logoUrl   String?  @map("logo_url")
-  isActive  Boolean  @default(true) @map("is_active")
-  theme     Json?    @default("{\"primaryColor\":\"#2563eb\",\"primaryHover\":\"#1d4ed8\",\"accentColor\":\"#4f46e5\",\"bgColor\":\"#f8fafc\",\"cardBg\":\"#ffffff\"}")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  shortName          String?  @map("short_name")
+  logoUrl            String?  @map("logo_url")
+  isActive           Boolean  @default(true) @map("is_active")
+  theme              Json?    @default("{\"primaryColor\":\"#2563eb\",\"primaryHover\":\"#1d4ed8\",\"accentColor\":\"#4f46e5\",\"bgColor\":\"#f8fafc\",\"cardBg\":\"#ffffff\"}")
+  aiEnabled          Boolean  @default(true) @map("ai_enabled")
+  tier               String   @default("free")
+  freeTierTokensUsed Int      @default(0) @map("free_tier_tokens_used")
+  freeTierTokenLimit Int      @default(100000) @map("free_tier_token_limit")
+  freeTierResetAt    DateTime? @map("free_tier_reset_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   users         User[]
   contacts      Contact[]
@@ -25,6 +30,8 @@ model Workspace {
   articles      Article[]
   categories    ArticleCategory[]
   customDomain  CustomDomain?
+  llmModels     LlmModel[]
+  llmLogs       LlmRequestLog[]
 
   @@map("workspaces")
 }
@@ -124,6 +131,7 @@ model Conversation {
   rating        Int?
   ratingFeedback String?            @map("rating_feedback")
   ratedAt       DateTime?           @map("rated_at")
+  tokensUsed    Int                 @default(0) @map("tokens_used")
   createdAt     DateTime            @default(now()) @map("created_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
@@ -131,6 +139,7 @@ model Conversation {
   contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   assignee  User?     @relation("AssignedAgent", fields: [assigneeId], references: [id])
   messages  Message[]
+  llmLogs   LlmRequestLog[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, assigneeId])
@@ -222,4 +231,46 @@ model CustomDomain {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("custom_domains")
+}
+
+model LlmModel {
+  id               String    @id @default(uuid())
+  workspaceId      String    @map("workspace_id")
+  provider         String    // "google", "openai", "anthropic"
+  modelName        String    @map("model_name")
+  apiKey           String    @map("api_key")
+  isDefault        Boolean   @default(false) @map("is_default")
+  status           String    @default("unverified") // "verified", "unverified", "invalid_key", "rate_limited"
+  rateLimitResetAt DateTime? @map("rate_limit_reset_at")
+  totalTokensUsed  Int       @default(0) @map("total_tokens_used")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("llm_models")
+}
+
+model LlmRequestLog {
+  id             String   @id @default(uuid())
+  workspaceId    String   @map("workspace_id")
+  conversationId String?  @map("conversation_id")
+  provider       String
+  modelName      String   @map("model_name")
+  taskType       String   @map("task_type") // "summary", "draft"
+  promptTokens   Int      @default(0) @map("prompt_tokens")
+  responseTokens Int      @default(0) @map("response_tokens")
+  totalTokens    Int      @default(0) @map("total_tokens")
+  latencyMs      Int      @map("latency_ms")
+  status         String   // "success", "failed", "rate_limited", "invalid_key"
+  errorMessage   String?  @map("error_message")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([conversationId])
+  @@map("llm_request_logs")
 }

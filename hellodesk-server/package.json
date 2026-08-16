@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@langchain/core": "^1.2.8",
+    "@langchain/google-genai": "^2.2.0",
+    "@langchain/openai": "^1.5.8",
     "@prisma/client": "^5.15.0",
     "@types/multer": "^2.2.0",
     "argon2": "^0.41.1",

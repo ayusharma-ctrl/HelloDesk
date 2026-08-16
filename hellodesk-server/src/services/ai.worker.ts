@@ -1,7 +1,7 @@
 import { Worker, Queue, Job } from 'bullmq';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
-import { generateContent } from '../lib/gemini.js';
+import { executeLlmTask } from './langchain.service.js';
 import { redis } from '../lib/redis.js';
 import { Server } from 'socket.io';
 
@@ -41,20 +41,21 @@ export function startAiWorkers(io: Server) {
 
         const transcript = textMessages.map(m => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
 
-        const prompt = `Summarize the following customer support conversation in 1-2 concise sentences. Be direct and helpful.\n\nTranscript:\n${transcript}`;
+        const systemPrompt = 'You are a helpful customer support AI assistant.';
+        const userPrompt = `Summarize the following customer support conversation in 1-2 concise sentences. Be direct and helpful.\n\nTranscript:\n${transcript}`;
 
-        const aiSummary = await generateContent(prompt);
+        const result = await executeLlmTask(conversation.workspaceId, conversationId, 'summary', systemPrompt, userPrompt);
 
-        if (aiSummary) {
+        if (result?.content) {
             await prisma.conversation.update({
                 where: { id: conversationId },
-                data: { aiSummary, aiSummaryAt: new Date() }
+                data: { aiSummary: result.content, aiSummaryAt: new Date() }
             });
 
-            logger.info({ conversationId }, 'AI summary generated');
+            logger.info({ conversationId, provider: result.provider, model: result.modelName }, 'AI summary generated via LangChain');
 
             if (io) {
-                io.to(`workspace:${conversation.workspaceId}`).emit('ai:summary-ready', { conversationId, summary: aiSummary });
+                io.to(`workspace:${conversation.workspaceId}`).emit('ai:summary-ready', { conversationId, summary: result.content });
             }
         }
     }, workerOptions);
@@ -100,9 +101,10 @@ export function startAiWorkers(io: Server) {
             prompt = `You are a helpful customer support agent. Below is the transcript of a conversation. Write a polite, helpful reply to the customer. Keep it relatively brief.\n\nTranscript:\n${transcript}\n\nAgent draft reply:`;
         }
 
-        const draftText = await generateContent(prompt);
+        const systemPrompt = 'You are a helpful customer support agent.';
+        const result = await executeLlmTask(conversation.workspaceId, conversationId, 'draft', systemPrompt, prompt);
 
-        if (draftText) {
+        if (result?.content) {
             // Delete old AI drafts for this conversation to prevent accumulation
             await prisma.message.deleteMany({
                 where: { conversationId, isAiDraft: true }
@@ -112,7 +114,7 @@ export function startAiWorkers(io: Server) {
                 data: {
                     conversationId,
                     senderType: 'agent',
-                    body: draftText.trim(),
+                    body: result.content.trim(),
                     isAiDraft: true
                 }
             });

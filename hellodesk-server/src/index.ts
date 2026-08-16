@@ -55,6 +55,8 @@ import { uploadRouter } from './modules/upload/upload.routes.js';
 
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+import { llmRouter } from './modules/llm/llm.routes.js';
+
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1/conversations', conversationRouter);
@@ -66,6 +68,7 @@ app.use('/api/v1/agents', agentRouter);
 app.use('/api/v1/dashboard', dashboardRouter);
 app.use('/api/v1/theme', themeRouter);
 app.use('/api/v1/upload', uploadRouter);
+app.use('/api/v1/llm', llmRouter);
 
 io.use(async (socket, next) => {
   const type = socket.handshake.auth?.type;

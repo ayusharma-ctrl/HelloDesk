@@ -38,6 +38,13 @@
 | Agent/Admin        | `POST`   | `/api/v1/upload`                       | Upload media attachment (photos, videos, documents up to 50MB)|
 | Agent/Admin        | `PATCH`  | `/api/v1/conversations/:id/status`     | Snooze or resolve conversation                               |
 | Agent/Admin        | `PATCH`  | `/api/v1/agents/me/status`             | Set own status to available/away                             |
+| Admin              | `GET`    | `/api/v1/llm/models`                   | List configured LLM models (max 5) & free-tier token usage   |
+| Admin              | `POST`   | `/api/v1/llm/verify font-mono`          | Test LLM API key credentials live via LangChain              |
+| Admin              | `POST`   | `/api/v1/llm/models`                   | Save verified LLM model configuration                        |
+| Admin              | `PATCH`  | `/api/v1/llm/models/:id/default`       | Set default LLM model                                        |
+| Admin              | `DELETE` | `/api/v1/llm/models/:id font-mono`     | Remove custom LLM model                                      |
+| Admin              | `PATCH`  | `/api/v1/llm/settings`                 | Update workspace master AI toggle (`aiEnabled`)              |
+| Admin              | `GET`    | `/api/v1/llm/logs`                     | Fetch real-time LLM request observability logs               |
 | Agent/Admin        | `GET`    | `/api/v1/conversations/:id/ai-summary` | Fetch latest AI-generated summary                            |
 | Agent/Admin        | `GET`    | `/api/v1/conversations/:id/ai-draft`   | Fetch latest AI-generated reply draft                        |
 
