@@ -5,8 +5,12 @@ import type { AuthUser } from '../../lib/auth.js';
 import type { ConversationListQuery } from './conversations.types.js';
 import type { SendMessageInput, SendEmailMessageInput, UpdateStatusInput, ReassignInput } from './conversations.schema.js';
 
-export async function listConversations(workspaceId: string, query: ConversationListQuery, user: AuthUser) {
+export async function listConversations(workspaceId: string, query: ConversationListQuery & { page?: number; limit?: number }, user: AuthUser) {
     const isAdmin = user.roleName === 'admin';
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+    const skip = (page - 1) * limit;
+
     const whereClause: any = {
         workspaceId,
         ...(query.status && query.status !== 'all' ? { status: query.status as any } : {}),
@@ -25,15 +29,34 @@ export async function listConversations(workspaceId: string, query: Conversation
         }
     }
 
-    return prisma.conversation.findMany({
-        where: whereClause,
-        include: {
-            contact: true,
-            assignee: { include: { role: true } },
-            messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'desc' }, take: 1 }
-        },
-        orderBy: { updatedAt: 'desc' },
-    });
+    const [total, conversations] = await Promise.all([
+        prisma.conversation.count({ where: whereClause }),
+        prisma.conversation.findMany({
+            where: whereClause,
+            skip,
+            take: limit,
+            include: {
+                contact: true,
+                assignee: { include: { role: true } },
+                messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'desc' }, take: 1 }
+            },
+            orderBy: { updatedAt: 'desc' },
+        })
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+        conversations,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+            hasMore: page < totalPages,
+            nextPage: page < totalPages ? page + 1 : null,
+        }
+    };
 }
 
 export async function getConversation(id: string, workspaceId: string, user: AuthUser) {
@@ -85,8 +108,21 @@ export async function addMessage(conversationId: string, workspaceId: string, in
         where: { conversationId, isAiDraft: true }
     });
 
+    const messageBody = input.body && input.body.trim().length > 0
+        ? input.body
+        : input.attachments && input.attachments.length > 0
+            ? `[Attachment: ${input.mediaType || 'file'}]`
+            : '';
+
     const message = await prisma.message.create({
-        data: { conversationId, senderType: 'agent', senderUserId, body: input.body },
+        data: {
+            conversationId,
+            senderType: 'agent',
+            senderUserId,
+            body: messageBody,
+            attachments: input.attachments ?? null,
+            mediaType: input.mediaType ?? null,
+        },
     });
 
     await prisma.conversation.update({
@@ -319,4 +355,35 @@ export async function getAiDraft(conversationId: string, workspaceId: string, us
     });
 
     return draftMessage;
+}
+
+export async function rateConversation(conversationId: string, rating: number, feedbackOption: string) {
+    const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { contact: true }
+    });
+
+    if (!conversation) {
+        const err = new Error('Conversation not found') as any;
+        err.status = 404;
+        throw err;
+    }
+
+    if (conversation.status !== 'resolved') {
+        const err = new Error('Only resolved conversations can be rated') as any;
+        err.status = 400;
+        throw err;
+    }
+
+    const updated = await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+            rating: Math.max(1, Math.min(5, rating)),
+            ratingFeedback: feedbackOption,
+            ratedAt: new Date(),
+        },
+        include: { contact: true, assignee: true }
+    });
+
+    return updated;
 }

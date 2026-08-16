@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
 export function useConversations(filters: { status?: string; channel?: string; assignee?: string }) {
@@ -13,6 +13,25 @@ export function useConversations(filters: { status?: string; channel?: string; a
             const res = await apiClient.get(`/api/v1/conversations?${params.toString()}`);
             return res.data.conversations ?? [];
         }
+    });
+}
+
+export function useInfiniteConversations(filters: { status?: string; channel?: string; assignee?: string; limit?: number }) {
+    return useInfiniteQuery({
+        queryKey: ['conversations-infinite', filters],
+        queryFn: async ({ pageParam = 1 }) => {
+            const params = new URLSearchParams();
+            params.append('page', String(pageParam));
+            if (filters.limit) params.append('limit', String(filters.limit));
+            if (filters.status && filters.status !== 'all') params.append('status', filters.status);
+            if (filters.channel && filters.channel !== 'all') params.append('channel', filters.channel);
+            if (filters.assignee && filters.assignee !== 'all') params.append('assignee', filters.assignee);
+
+            const res = await apiClient.get(`/api/v1/conversations?${params.toString()}`);
+            return res.data;
+        },
+        initialPageParam: 1,
+        getNextPageParam: (lastPage) => lastPage?.pagination?.nextPage ?? undefined,
     });
 }
 
@@ -58,9 +77,9 @@ export function useReassignConversation() {
 export function useSendMessage() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, body, isEmail }: { id: string; body: string; isEmail: boolean }) => {
+        mutationFn: async ({ id, body, isEmail, attachments, mediaType }: { id: string; body?: string; isEmail?: boolean; attachments?: any[]; mediaType?: string }) => {
             const endpoint = isEmail ? `/api/v1/conversations/${id}/messages/email` : `/api/v1/conversations/${id}/messages`;
-            const res = await apiClient.post(endpoint, { body });
+            const res = await apiClient.post(endpoint, { body: body || '', attachments, mediaType });
             return res.data;
         },
         onSuccess: (data, variables) => {
@@ -101,6 +120,21 @@ export function useMarkConversationRead() {
         onSuccess: (data, id) => {
             queryClient.invalidateQueries({ queryKey: ['conversation', id] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        }
+    });
+}
+
+export function useRateConversation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, rating, feedbackOption }: { id: string; rating: number; feedbackOption: string }) => {
+            const res = await apiClient.post(`/api/v1/conversations/${id}/rate`, { rating, feedbackOption });
+            return res.data;
+        },
+        onSuccess: (data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['conversation', variables.id] });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversations-infinite'] });
         }
     });
 }

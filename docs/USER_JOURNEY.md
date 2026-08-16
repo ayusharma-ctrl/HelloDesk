@@ -59,10 +59,17 @@
 7. Admins can reassign conversations, including escalation to admins.
 8. Agents and admins can mark conversations `open`, `pending`, `snoozed`, or `resolved` according to their permissions.
 
-## 8. Admin Oversight
+## 8. Resolution Rating & Branding Customization
+
+1. Admin configures custom theme CSS color tokens (primary, hover, background, card), logo URL, and workspace short display name in **Settings -> 🎨 Theme & Branding**.
+2. Customers or agents sending photos, videos, or documents hit `/api/v1/upload`. The `StorageProvider` saves media files and attaches metadata to messages.
+3. BullMQ AI summary and draft workers automatically isolate text messages from media attachment tags.
+4. When a conversation status is marked **Resolved**, a **Resolution Rating** prompt appears, allowing customers/agents to rate satisfaction out of 5 stars (smooth resolution, long wait, unsatisfied) with real-time socket updates.
+
+## 9. Admin Oversight
 
 1. Admin can view workspace overview data.
-2. Admin can manage team members, roles, knowledge base articles, and custom domains.
+2. Admin can manage team members, roles, knowledge base articles, custom domains, and theme branding.
 3. Admin can reassign conversations and handle escalations.
 
 ## 9. Deactivation

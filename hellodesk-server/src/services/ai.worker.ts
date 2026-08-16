@@ -35,7 +35,11 @@ export function startAiWorkers(io: Server) {
 
         if (!conversation || conversation.messages.length === 0) return;
 
-        const transcript = conversation.messages.map(m => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
+        // Ignore pure media messages or placeholder media messages in AI processing
+        const textMessages = conversation.messages.filter(m => m.body && !m.body.startsWith('[Attachment:'));
+        if (textMessages.length === 0) return;
+
+        const transcript = textMessages.map(m => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
 
         const prompt = `Summarize the following customer support conversation in 1-2 concise sentences. Be direct and helpful.\n\nTranscript:\n${transcript}`;
 
@@ -72,23 +76,26 @@ export function startAiWorkers(io: Server) {
 
         if (!conversation || conversation.messages.length === 0) return;
 
+        const textMessages = conversation.messages.filter(m => m.body && !m.body.startsWith('[Attachment:'));
+        if (textMessages.length === 0) return;
+
         let prompt = '';
 
         if (conversation.aiSummary && conversation.aiSummaryAt) {
             const summaryAt = conversation.aiSummaryAt;
 
-            const messagesAfterSummary = conversation.messages.filter(
+            const messagesAfterSummary = textMessages.filter(
                 (m) => m.createdAt > summaryAt
             );
 
             const recentMessages = messagesAfterSummary.length > 0 ? messagesAfterSummary
-                : [conversation.messages[conversation.messages.length - 1]];
+                : [textMessages[textMessages.length - 1]];
 
             const recentTranscript = recentMessages.map((m) => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
 
             prompt = `You are a helpful customer support agent. Below is the summary of the previous conversation and any new messages received since. Write a polite, helpful reply to the customer. Keep it relatively brief.\n\nPrevious Conversation Summary:\n${conversation.aiSummary}\n\nNew Messages:\n${recentTranscript}\n\nAgent draft reply:`;
         } else {
-            const transcript = conversation.messages.map((m) => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
+            const transcript = textMessages.map((m) => `${m.senderType.toUpperCase()}: ${m.body}`).join('\n');
 
             prompt = `You are a helpful customer support agent. Below is the transcript of a conversation. Write a polite, helpful reply to the customer. Keep it relatively brief.\n\nTranscript:\n${transcript}\n\nAgent draft reply:`;
         }

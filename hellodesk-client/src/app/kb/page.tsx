@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, Suspense } from 'react';
+import { useEffect, useState, useDeferredValue, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKbLayout } from '@/components/layout/PublicKbLayout';
@@ -11,6 +11,7 @@ function KnowledgeBasePublicContent() {
     const workspaceId = searchParams.get('workspaceId') || searchParams.get('ws') || undefined;
 
     const [query, setQuery] = useState('');
+    const deferredQuery = useDeferredValue(query);
     const [results, setResults] = useState<any[]>([]);
     const [workspaceInfo, setWorkspaceInfo] = useState<{ id: string; name: string } | null>(null);
     const [loading, setLoading] = useState(false);
@@ -36,16 +37,14 @@ function KnowledgeBasePublicContent() {
     };
 
     useEffect(() => {
-        void searchArticles('');
-    }, [workspaceId]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        setQuery(value);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
-            void searchArticles(value);
-        }, 500);
+            void searchArticles(deferredQuery);
+        }, 300);
+    }, [deferredQuery, workspaceId]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setQuery(e.target.value);
     };
 
     const brandName = workspaceInfo?.name || 'HelloDesk';

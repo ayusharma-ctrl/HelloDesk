@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 export const sendMessageSchema = z.object({
-    body: z.string().min(1, 'Message body is required'),
+    body: z.string().optional().default(''),
+    attachments: z.any().optional(),
+    mediaType: z.string().optional(),
+}).refine(data => data.body.trim().length > 0 || (data.attachments && data.attachments.length > 0), {
+    message: 'Message must contain text or attachments',
 });
 
 export const sendEmailMessageSchema = z.object({

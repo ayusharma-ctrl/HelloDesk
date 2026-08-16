@@ -42,9 +42,9 @@ Phase 1 covers all 7 mandatory requirements, plus one stretch feature: **AI Auto
 | Social sign-in | Email/password is sufficient for assignment scope |
 | Workload-aware agent assignment | Simple round-robin is sufficient for Phase 1; smarter balancing is future scope |
 | ML-based wait time prediction | Formula-based EWT with rolling averages is enough without ML models |
-| Attachments / S3 storage | Attachments are not supported in Phase 1 |
+| Cloud S3 Storage | Extensible `StorageProvider` interface implemented with local disk storage; ready for S3 provider swap |
 | Automated tests | Deprioritized in favor of shipping full feature scope within the time window |
-| Canned responses, contact timeline, SLA tracking, webhooks/API, analytics dashboard | Valid stretch goals, but not included in Phase 1 to protect delivery of all mandatory requirements plus AI Auto-Reply Drafts |
+| Canned responses, contact timeline, SLA tracking | Valid stretch goals, but not included in Phase 1 to protect delivery of mandatory features |
 
 ## Why AI Auto-Reply Drafts Was Chosen
 

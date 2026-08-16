@@ -14,6 +14,8 @@ import { webhookRouter } from './modules/webhooks/webhooks.routes.js';
 import { domainRouter } from './modules/domains/domains.routes.js';
 import { agentRouter } from './modules/agents/agents.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { themeRouter } from './modules/theme/theme.routes.js';
+import { exec } from 'child_process';
 import { requireAuth, verifyToken } from './lib/auth.js';
 import { setAgentStatus } from './lib/redis.js';
 import { startAiWorkers } from './services/ai.worker.js';
@@ -48,6 +50,11 @@ app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok', service: 'hellodesk-server' });
 });
 
+import path from 'path';
+import { uploadRouter } from './modules/upload/upload.routes.js';
+
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1/conversations', conversationRouter);
@@ -57,6 +64,8 @@ app.use('/api/v1/webhooks', webhookRouter);
 app.use('/api/v1/domains', domainRouter);
 app.use('/api/v1/agents', agentRouter);
 app.use('/api/v1/dashboard', dashboardRouter);
+app.use('/api/v1/theme', themeRouter);
+app.use('/api/v1/upload', uploadRouter);
 
 io.use(async (socket, next) => {
   const type = socket.handshake.auth?.type;
@@ -191,4 +200,13 @@ server.listen(port, async () => {
   logger.info({ port }, 'HelloDesk server listening');
   await prisma.$connect();
   logger.info('Prisma connected');
+
+  // Automatically run migrations on server start
+  exec('npx prisma migrate deploy', (error, stdout) => {
+    if (error) {
+      logger.error({ error }, 'Prisma auto-migration error');
+    } else {
+      logger.info({ stdout: stdout.trim() }, 'Prisma auto-migration completed');
+    }
+  });
 });

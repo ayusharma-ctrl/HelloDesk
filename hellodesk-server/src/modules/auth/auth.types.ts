@@ -1,6 +1,9 @@
 export interface WorkspaceDto {
     id: string;
     name: string;
+    shortName?: string | null;
+    logoUrl?: string | null;
+    theme?: any;
 }
 
 export interface AuthUserDto {

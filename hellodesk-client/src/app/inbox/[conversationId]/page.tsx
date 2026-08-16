@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useOptimistic } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useConversation, useSendMessage, useUpdateConversationStatus, useReassignConversation, useAiSummary, useAiDraft, useMarkConversationRead } from '@/features/inbox/api/conversations';
+import { useConversation, useSendMessage, useUpdateConversationStatus, useReassignConversation, useAiSummary, useAiDraft, useMarkConversationRead, useRateConversation } from '@/features/inbox/api/conversations';
 import { useTeam } from '@/features/team/api/team';
 import { useCurrentUser } from '@/features/auth/api/me';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
@@ -39,6 +39,21 @@ export default function ConversationDetailPage() {
     const isActiveConv = conv?.status === 'open' || conv?.status === 'pending';
     const isMyActiveConv = isAssignedToMe && isActiveConv;
     const canUpdateStatus = isAdmin || (isAssignedToMe && !isResolved);
+
+    // React 19 Optimistic UI state for instant message rendering
+    const [optimisticMessages, addOptimisticMessage] = useOptimistic(
+        conv?.messages ?? [],
+        (state: any[], newMessageText: string) => [
+            ...state,
+            {
+                id: `opt-${Date.now()}`,
+                body: newMessageText,
+                senderType: 'agent',
+                createdAt: new Date().toISOString(),
+                isOptimistic: true,
+            }
+        ]
+    );
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -80,9 +95,18 @@ export default function ConversationDetailPage() {
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!body.trim() || isResolved) return;
-        await sendMutation.mutateAsync({ id, body: body.trim(), isEmail: conv?.channel === 'email' });
+        const textToSend = body.trim();
+        if (!textToSend || isResolved) return;
+
         setBody('');
+        addOptimisticMessage(textToSend);
+
+        try {
+            await sendMutation.mutateAsync({ id, body: textToSend, isEmail: conv?.channel === 'email' });
+        } catch (err) {
+            console.error('Failed to send message:', err);
+        }
+
         if (socket && id) {
             socket.emit('typing:stop', { conversationId: id, visitorId: conv?.contact?.visitorId });
         }
@@ -140,14 +164,30 @@ export default function ConversationDetailPage() {
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-50">
-                        {conv.messages?.map((msg: any) => {
+                        {optimisticMessages?.map((msg: any) => {
                             const isAgent = msg.senderType === 'agent';
                             const timeFormatted = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                             return (
-                                <div key={msg.id} className={`max-w-[80%] p-3 rounded-2xl text-sm ${isAgent ? 'bg-blue-600 text-white self-end rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 self-start rounded-tl-sm'}`}>
-                                    <p className="whitespace-pre-wrap">{msg.body}</p>
+                                <div key={msg.id} className={`max-w-[80%] p-3 rounded-2xl text-sm ${isAgent ? 'bg-blue-600 text-white self-end rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 self-start rounded-tl-sm'} ${msg.isOptimistic ? 'opacity-70' : ''}`}>
+                                    {msg.body && !msg.body.startsWith('[Attachment:') && <p className="whitespace-pre-wrap mb-2">{msg.body}</p>}
+
+                                    {/* Render Media Attachments */}
+                                    {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.map((att: any, idx: number) => (
+                                        <div key={idx} className="mt-1 mb-1">
+                                            {msg.mediaType === 'image' || att.url?.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                                <img src={att.url} alt="Attachment" className="max-w-xs max-h-60 rounded-lg object-cover border border-black/10" />
+                                            ) : msg.mediaType === 'video' || att.url?.match(/\.(mp4|webm|ogg)/i) ? (
+                                                <video src={att.url} controls className="max-w-xs max-h-60 rounded-lg border border-black/10" />
+                                            ) : (
+                                                <a href={att.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-2 p-2 rounded-lg text-xs font-semibold underline ${isAgent ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                                    📎 Download Attachment ({att.originalName || 'File'})
+                                                </a>
+                                            )}
+                                        </div>
+                                    ))}
+
                                     <div className={`text-[10px] mt-1 flex justify-between items-center gap-3 ${isAgent ? 'text-blue-200' : 'text-slate-400'}`}>
-                                        <span>{timeFormatted}</span>
+                                        <span>{msg.isOptimistic ? 'Sending...' : timeFormatted}</span>
                                         {isAgent && msg.readAt && <span className="font-semibold text-blue-100 italic">seen</span>}
                                     </div>
                                 </div>
@@ -170,7 +210,36 @@ export default function ConversationDetailPage() {
                                 <span>This conversation is marked as <strong>Resolved</strong>. {isAdmin ? 'Reopen the conversation (select Open above) to send replies.' : 'Only an administrator can reopen this conversation to send replies.'}</span>
                             </div>
                         )}
-                        <form onSubmit={handleSend} className="flex gap-2">
+                        <form onSubmit={handleSend} className="flex gap-2 items-center">
+                            <label className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors" title="Attach image or video">
+                                📎
+                                <input
+                                    type="file"
+                                    accept="image/*,video/*,application/pdf"
+                                    className="hidden"
+                                    disabled={sendMutation.isPending || isResolved}
+                                    onChange={async (e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        const formData = new FormData();
+                                        formData.append('file', file);
+                                        try {
+                                            const { apiClient } = await import('@/lib/api-client');
+                                            const res = await apiClient.post('/api/v1/upload', formData, {
+                                                headers: { 'Content-Type': 'multipart/form-data' }
+                                            });
+                                            sendMutation.mutate({
+                                                id,
+                                                body: '',
+                                                attachments: [{ url: res.data.url, originalName: res.data.originalName }],
+                                                mediaType: res.data.mediaType,
+                                            });
+                                        } catch (err) {
+                                            alert('Failed to upload file');
+                                        }
+                                    }}
+                                />
+                            </label>
                             <Input
                                 value={body}
                                 onChange={e => {
@@ -187,7 +256,7 @@ export default function ConversationDetailPage() {
                                         }, 2000);
                                     }
                                 }}
-                                placeholder={isResolved ? "This conversation is resolved. Reopen to send replies..." : "Type your reply..."}
+                                placeholder={isResolved ? "This conversation is resolved. Reopen to send replies..." : "Type your reply or attach a file..."}
                                 className="flex-1"
                                 disabled={sendMutation.isPending || (!isAdmin && !isAssignedToMe) || isResolved}
                             />
@@ -221,6 +290,28 @@ export default function ConversationDetailPage() {
                             </p>
                         )}
                     </div>
+
+                    {/* Resolution Rating Card */}
+                    {isResolved && (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                            <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-1.5">
+                                <span>⭐</span> Resolution Rating
+                            </h3>
+
+                            {conv.rating ? (
+                                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900">
+                                    <div className="flex items-center gap-1 text-base font-bold mb-1">
+                                        {'⭐'.repeat(conv.rating)}
+                                        <span className="text-xs font-semibold ml-1 text-amber-800">({conv.rating}/5)</span>
+                                    </div>
+                                    <p className="text-xs font-medium text-amber-900">Feedback: "{conv.ratingFeedback}"</p>
+                                    <p className="text-[10px] text-amber-700 mt-1">Rated on {new Date(conv.ratedAt).toLocaleDateString()}</p>
+                                </div>
+                            ) : (
+                                <ResolutionRatingForm id={id} />
+                            )}
+                        </div>
+                    )}
 
                     {/* AI Smart Features */}
                     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl shadow-sm border border-indigo-100 p-4 flex-1">
@@ -260,5 +351,33 @@ export default function ConversationDetailPage() {
                 </div>
             </div>
         </AuthenticatedLayout>
+    );
+}
+
+const FEEDBACK_OPTIONS = [
+    { label: 'Issue resolved smoothly', rating: 5, emoji: '🟢' },
+    { label: 'Took long time to resolve', rating: 3, emoji: '🟡' },
+    { label: 'Not happy with resolution', rating: 1, emoji: '🔴' }
+];
+
+function ResolutionRatingForm({ id }: { id: string }) {
+    const rateMutation = useRateConversation();
+
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="text-xs text-slate-500 mb-1">Select customer feedback for this resolved issue:</p>
+            {FEEDBACK_OPTIONS.map((opt) => (
+                <button
+                    key={opt.label}
+                    type="button"
+                    disabled={rateMutation.isPending}
+                    onClick={() => rateMutation.mutate({ id, rating: opt.rating, feedbackOption: opt.label })}
+                    className="p-2 border border-slate-200 rounded-lg text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-between transition-colors"
+                >
+                    <span>{opt.emoji} {opt.label}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">({opt.rating}/5)</span>
+                </button>
+            ))}
+        </div>
     );
 }

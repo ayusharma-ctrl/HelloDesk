@@ -6,7 +6,7 @@ export interface CurrentUser {
     email: string;
     name: string;
     role: string;
-    workspace: { id: string; name: string };
+    workspace: { id: string; name: string; shortName?: string | null; logoUrl?: string | null; theme?: any };
 }
 
 export function useCurrentUser() {

@@ -14,5 +14,6 @@ router.patch('/:id/read', requireAuth, conversationsController.markRead);
 
 router.get('/:id/ai-summary', requireAuth, conversationsController.getAiSummary);
 router.get('/:id/ai-draft', requireAuth, conversationsController.getAiDraft);
+router.post('/:id/rate', conversationsController.rateConversation);
 
 export { router as conversationRouter };

@@ -8,9 +8,13 @@ function getId(req: Request): string {
 
 export async function listConversations(req: Request, res: Response) {
     try {
-        const { status, assignee, channel } = req.query as Record<string, string | undefined>;
-        const conversations = await conversationsService.listConversations(req.user!.workspaceId, { status, assignee, channel }, req.user!);
-        return res.json({ conversations });
+        const { status, assignee, channel, page, limit } = req.query as Record<string, string | undefined>;
+        const result = await conversationsService.listConversations(
+            req.user!.workspaceId,
+            { status, assignee, channel, page: page ? Number(page) : undefined, limit: limit ? Number(limit) : undefined },
+            req.user!
+        );
+        return res.json(result);
     } catch (err: any) {
         return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
     }
@@ -113,5 +117,20 @@ export async function getAiDraft(req: Request, res: Response) {
         return res.json({ draft });
     } catch (err: any) {
         return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    }
+}
+
+export async function rateConversation(req: Request, res: Response) {
+    try {
+        const { rating, feedbackOption } = req.body;
+        const updated = await conversationsService.rateConversation(getId(req), Number(rating), String(feedbackOption));
+        const io = req.app.get('io');
+        io.to(`workspace:${updated.workspaceId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
+        if (updated?.contact?.visitorId) {
+            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
+        }
+        return res.json({ conversation: updated });
+    } catch (err: any) {
+        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Failed to record rating' });
     }
 }

@@ -24,8 +24,20 @@ export async function startConversation(input: StartConversationInput) {
         data: { workspaceId: input.workspaceId, contactId: contact.id, channel, status: 'open' },
     });
 
+    const startBody = input.body && input.body.trim().length > 0
+        ? input.body
+        : input.attachments && input.attachments.length > 0
+            ? `[Attachment: ${input.mediaType || 'file'}]`
+            : '';
+
     const message = await prisma.message.create({
-        data: { conversationId: conversation.id, senderType: 'contact', body: input.body },
+        data: {
+            conversationId: conversation.id,
+            senderType: 'contact',
+            body: startBody,
+            attachments: input.attachments ?? null,
+            mediaType: input.mediaType ?? null,
+        },
     });
 
     await prisma.conversation.update({
@@ -66,8 +78,20 @@ export async function sendMessage(input: SendWidgetMessageInput) {
         throw err;
     }
 
+    const sendBody = input.body && input.body.trim().length > 0
+        ? input.body
+        : input.attachments && input.attachments.length > 0
+            ? `[Attachment: ${input.mediaType || 'file'}]`
+            : '';
+
     const message = await prisma.message.create({
-        data: { conversationId: input.conversationId, senderType: 'contact', body: input.body },
+        data: {
+            conversationId: input.conversationId,
+            senderType: 'contact',
+            body: sendBody,
+            attachments: input.attachments ?? null,
+            mediaType: input.mediaType ?? null,
+        },
     });
 
     // Auto-unsnooze if conversation was snoozed

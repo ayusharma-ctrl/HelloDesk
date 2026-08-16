@@ -95,7 +95,8 @@ export async function login(input: LoginInput): Promise<AuthResponse> {
             role: user.role.name,
             workspace: {
                 id: user.workspaceId,
-                name: user.workspace.name
+                name: user.workspace.name,
+                theme: user.workspace.theme
             }
         },
         permissions,
@@ -123,7 +124,10 @@ export async function getMe(userId: string): Promise<AuthUserDto & { permissions
         role: user.role.name,
         workspace: {
             id: user.workspace.id,
-            name: user.workspace.name
+            name: user.workspace.name,
+            shortName: user.workspace.shortName,
+            logoUrl: user.workspace.logoUrl,
+            theme: user.workspace.theme
         },
         permissions,
     };

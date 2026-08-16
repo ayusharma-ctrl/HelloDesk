@@ -15,6 +15,7 @@ const navItems = [
 
 const adminItems = [
     { href: '/settings/domains', label: '🌐 Custom Domain' },
+    { href: '/settings/theme', label: '🎨 Theme & Branding' },
     { href: '/kb/admin', label: '✏️ KB Authoring' },
 ];
 
@@ -52,11 +53,15 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
             {/* Logo */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
                 <Link href="/" onClick={() => setSidebarOpen(false)} className="flex items-center gap-2.5 group">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
-                        H
-                    </div>
+                    {me?.workspace?.logoUrl ? (
+                        <img src={me.workspace.logoUrl} alt="Logo" className="w-8 h-8 rounded-xl object-cover shadow-sm group-hover:scale-105 transition-transform" />
+                    ) : (
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
+                            {me?.workspace?.shortName ? me.workspace.shortName.charAt(0).toUpperCase() : 'H'}
+                        </div>
+                    )}
                     <span className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-                        HelloDesk
+                        {me?.workspace?.shortName || 'HelloDesk'}
                     </span>
                 </Link>
                 <button

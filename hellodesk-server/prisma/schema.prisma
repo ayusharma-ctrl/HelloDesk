@@ -12,7 +12,10 @@ datasource db {
 model Workspace {
   id        String   @id @default(uuid())
   name      String   @unique
+  shortName String?  @map("short_name")
+  logoUrl   String?  @map("logo_url")
   isActive  Boolean  @default(true) @map("is_active")
+  theme     Json?    @default("{\"primaryColor\":\"#2563eb\",\"primaryHover\":\"#1d4ed8\",\"accentColor\":\"#4f46e5\",\"bgColor\":\"#f8fafc\",\"cardBg\":\"#ffffff\"}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -118,6 +121,9 @@ model Conversation {
   aiSummary     String?             @map("ai_summary")
   aiSummaryAt   DateTime?           @map("ai_summary_at")
   snoozedUntil  DateTime?           @map("snoozed_until")
+  rating        Int?
+  ratingFeedback String?            @map("rating_feedback")
+  ratedAt       DateTime?           @map("rated_at")
   createdAt     DateTime            @default(now()) @map("created_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
@@ -143,6 +149,8 @@ model Message {
   senderType     MessageSenderType @map("sender_type")
   senderUserId   String?           @map("sender_user_id")
   body           String
+  attachments    Json?
+  mediaType      String?           @map("media_type")
   emailMessageId String?           @map("email_message_id")
   emailInReplyTo String?           @map("email_in_reply_to")
   isAiDraft      Boolean           @default(false) @map("is_ai_draft")
