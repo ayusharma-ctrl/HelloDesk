@@ -1,33 +1,32 @@
-import { Request, Response } from 'express';
-import * as agentsService from './agents.service.js';
+import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { AgentsService } from './agents.service.js';
+import { getIoInstance } from '../../events.gateway.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function getMyStatus(req: Request, res: Response) {
-    try {
-        const result = await agentsService.getStatus(req.user!.workspaceId, req.user!.id);
-        return res.json(result);
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+@UseGuards(JwtAuthGuard)
+@Controller('agents')
+export class AgentsController {
+    constructor(private readonly agentsService: AgentsService) {}
+
+    @Get('me/status')
+    async getMyStatus(@CurrentUser() user: AuthUser) {
+        return this.agentsService.getStatus(user.workspaceId, user.id);
     }
-}
 
-export async function setMyStatus(req: Request, res: Response) {
-    try {
-        const { status } = req.body as { status?: string };
-        if (!status) return res.status(400).json({ error: 'Status is required' });
-        const result = await agentsService.setStatus(req.user!.workspaceId, req.user!.id, status);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('presence:changed', { workspaceId: req.user!.workspaceId, userId: req.user!.id, status });
-        return res.json(result);
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+    @Patch('me/status')
+    async setMyStatus(@CurrentUser() user: AuthUser, @Body() body: { status?: string }) {
+        const result = await this.agentsService.setStatus(user.workspaceId, user.id, body.status ?? '');
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${user.workspaceId}`).emit('presence:changed', { workspaceId: user.workspaceId, userId: user.id, status: body.status });
+        }
+        return result;
     }
-}
 
-export async function listPresence(req: Request, res: Response) {
-    try {
-        const result = await agentsService.listPresence(req.user!.workspaceId);
-        return res.json(result);
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+    @Get('presence')
+    async listPresence(@CurrentUser() user: AuthUser) {
+        return this.agentsService.listPresence(user.workspaceId);
     }
 }

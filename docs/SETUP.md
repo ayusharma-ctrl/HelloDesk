@@ -5,17 +5,17 @@
 ### Backend (`hellodesk-server`)
 
 - **Language**: TypeScript
-- **Runtime/Framework**: Node.js modular monolith with clear service/module boundaries
+- **Runtime/Framework**: Node.js 24.19.0 LTS + NestJS v11 + Express Adapter (`src/app.module.ts`)
 - **Database**: PostgreSQL
 - **ORM**: Prisma
 - **Cache / Pub-Sub / Rate Limiting**: Redis
-- **Realtime**: Socket.io with Redis Adapter for horizontal scaling readiness
+- **Realtime**: Socket.io via NestJS `@WebSocketGateway()`
 - **Background Jobs**: BullMQ, backed by Redis, for email sending, AI summary/draft generation, and webhook processing
-- **Validation**: Zod
+- **Validation**: Zod & Class-Validator
 - **Logging**: Pino structured logging
 - **Resilience patterns**: token bucket rate limiting, circuit breakers, retry with exponential backoff, throttling/debouncing where applicable
 - **Email Provider**: Resend for inbound webhook handling and outbound email replies
-- **LLM Provider**: Google Gemini API for conversation summaries and AI auto-reply drafts
+- **LLM Provider**: LangChain Multi-Model Dispatcher (Google Gemini, OpenAI, etc.) with circuit breakers and token tracking
 - **Deployment**: Render
 
 ### Frontend (`hellodesk-client`)

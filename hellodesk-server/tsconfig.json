@@ -16,6 +16,8 @@
     "types": [
       "node"
     ],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "noEmitOnError": false
   },
   "include": [

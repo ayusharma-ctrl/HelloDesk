@@ -1,35 +1,27 @@
-import { Request, Response } from 'express';
-import { signupSchema, loginSchema } from './auth.schema.js';
-import * as authService from './auth.service.js';
-import { logger } from '../../lib/logger.js';
+import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { AuthService } from './auth.service.js';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function signup(req: Request, res: Response) {
-    try {
-        const input = signupSchema.parse(req.body);
-        const result = await authService.signup(input);
-        return res.status(201).json(result);
-    } catch (err: any) {
-        logger.warn({ err }, 'signup error');
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid signup payload' });
+@Controller('auth')
+export class AuthController {
+    constructor(private readonly authService: AuthService) {}
+
+    @Post('signup')
+    async signup(@Body() body: any) {
+        return this.authService.signup(body);
     }
-}
 
-export async function login(req: Request, res: Response) {
-    try {
-        const input = loginSchema.parse(req.body);
-        const result = await authService.login(input);
-        return res.json(result);
-    } catch (err: any) {
-        logger.warn({ err }, 'login error');
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid login payload' });
+    @Post('login')
+    async login(@Body() body: any) {
+        return this.authService.login(body);
     }
-}
 
-export async function getMe(req: Request, res: Response) {
-    try {
-        const user = await authService.getMe(req.user!.id);
-        return res.json({ user });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @UseGuards(JwtAuthGuard)
+    @Get('me')
+    async getMe(@CurrentUser() user: AuthUser) {
+        const result = await this.authService.getMe(user.id);
+        return { user: result };
     }
 }

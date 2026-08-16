@@ -4,7 +4,7 @@ import fs from 'fs';
 import { logger } from '../lib/logger.js';
 
 export interface StorageProvider {
-    uploadFile(file: Express.Multer.File): Promise<{ url: string; mediaType: string }>;
+    uploadFile(file: any): Promise<{ url: string; mediaType: string }>;
 }
 
 export class LocalStorageProvider implements StorageProvider {
@@ -17,7 +17,7 @@ export class LocalStorageProvider implements StorageProvider {
         }
     }
 
-    async uploadFile(file: Express.Multer.File): Promise<{ url: string; mediaType: string }> {
+    async uploadFile(file: any): Promise<{ url: string; mediaType: string }> {
         const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}${path.extname(file.originalname)}`;
         const filePath = path.join(this.uploadDir, filename);
         await fs.promises.writeFile(filePath, file.buffer);

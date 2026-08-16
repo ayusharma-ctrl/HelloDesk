@@ -1,170 +1,49 @@
-import { Request, Response } from 'express';
-import { prisma } from '../../lib/prisma.js';
-import { testLlmCredentials } from '../../services/langchain.service.js';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { LlmService } from './llm.service.js';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function listModels(req: Request, res: Response) {
-    try {
-        const workspaceId = req.user!.workspaceId;
-        const workspace = await prisma.workspace.findUnique({
-            where: { id: workspaceId },
-            select: {
-                aiEnabled: true,
-                tierKey: true,
-                freeTierTokensUsed: true,
-                freeTierResetAt: true,
-                workspaceTier: true,
-            }
-        });
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('llm:manage')
+@Controller('llm')
+export class LlmController {
+    constructor(private readonly llmService: LlmService) {}
 
-        const models = await prisma.llmModel.findMany({
-            where: { workspaceId },
-            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-        });
-
-        return res.json({ workspace, models });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to list LLM models' });
+    @Get('models')
+    async listModels(@CurrentUser() user: AuthUser) {
+        return this.llmService.listModels(user.workspaceId);
     }
-}
 
-export async function verifyModel(req: Request, res: Response) {
-    try {
-        const { provider, modelName, apiKey } = req.body;
-        if (!provider || !modelName || !apiKey) {
-            return res.status(400).json({ error: 'Provider, modelName, and apiKey are required' });
-        }
-
-        const result = await testLlmCredentials(provider, modelName, apiKey);
-        if (!result.success) {
-            return res.status(400).json({ error: result.error || 'Failed to verify API key credentials' });
-        }
-
-        return res.json({ verified: true });
-    } catch (err: any) {
-        return res.status(400).json({ error: err?.message ?? 'Verification failed' });
+    @Post('verify')
+    async verifyModel(@Body() body: any) {
+        return this.llmService.verifyModel(body);
     }
-}
 
-export async function addModel(req: Request, res: Response) {
-    try {
-        const { provider, modelName, apiKey } = req.body;
-        const workspaceId = req.user!.workspaceId;
-
-        const workspace = await prisma.workspace.findUnique({
-            where: { id: workspaceId },
-            include: { workspaceTier: true }
-        });
-
-        const maxModels = workspace?.workspaceTier?.maxCustomModels ?? 3;
-        const count = await prisma.llmModel.count({ where: { workspaceId } });
-
-        if (count >= maxModels) {
-            return res.status(400).json({ error: `Workspace tier limit reached: Max ${maxModels} LLM models allowed on ${workspace?.workspaceTier?.name || workspace?.tierKey} tier` });
-        }
-
-        // Test credentials before adding
-        const testResult = await testLlmCredentials(provider, modelName, apiKey);
-        if (!testResult.success) {
-            return res.status(400).json({ error: testResult.error || 'Credentials verification failed' });
-        }
-
-        const isDefault = count === 0; // First added model becomes default automatically
-
-        const newModel = await prisma.llmModel.create({
-            data: {
-                workspaceId,
-                provider,
-                modelName,
-                apiKey,
-                isDefault,
-                status: 'verified',
-            }
-        });
-
-        return res.status(201).json({ model: newModel });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to add model' });
+    @Post('models')
+    async addModel(@CurrentUser() user: AuthUser, @Body() body: any) {
+        return this.llmService.addModel(user.workspaceId, body);
     }
-}
 
-export async function setDefaultModel(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const workspaceId = req.user!.workspaceId;
-
-        await prisma.$transaction([
-            prisma.llmModel.updateMany({
-                where: { workspaceId },
-                data: { isDefault: false }
-            }),
-            prisma.llmModel.update({
-                where: { id },
-                data: { isDefault: true }
-            })
-        ]);
-
-        return res.json({ success: true });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to set default model' });
+    @Patch('models/:id/default')
+    async setDefaultModel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.llmService.setDefaultModel(user.workspaceId, id);
     }
-}
 
-export async function deleteModel(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const workspaceId = req.user!.workspaceId;
-
-        const model = await prisma.llmModel.findFirst({ where: { id, workspaceId } });
-        if (!model) {
-            return res.status(404).json({ error: 'Model not found' });
-        }
-
-        await prisma.llmModel.delete({ where: { id } });
-
-        // If deleted model was default, make remaining model default
-        if (model.isDefault) {
-            const remaining = await prisma.llmModel.findFirst({ where: { workspaceId } });
-            if (remaining) {
-                await prisma.llmModel.update({
-                    where: { id: remaining.id },
-                    data: { isDefault: true }
-                });
-            }
-        }
-
-        return res.json({ success: true });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to delete model' });
+    @Delete('models/:id')
+    async deleteModel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.llmService.deleteModel(user.workspaceId, id);
     }
-}
 
-export async function updateAiSettings(req: Request, res: Response) {
-    try {
-        const { aiEnabled } = req.body;
-        const workspaceId = req.user!.workspaceId;
-
-        const updated = await prisma.workspace.update({
-            where: { id: workspaceId },
-            data: { ...(aiEnabled !== undefined ? { aiEnabled: Boolean(aiEnabled) } : {}) }
-        });
-
-        return res.json({ aiEnabled: updated.aiEnabled });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to update AI settings' });
+    @Patch('settings')
+    async updateAiSettings(@CurrentUser() user: AuthUser, @Body() body: any) {
+        return this.llmService.updateAiSettings(user.workspaceId, body);
     }
-}
 
-export async function getObservabilityLogs(req: Request, res: Response) {
-    try {
-        const workspaceId = req.user!.workspaceId;
-        const logs = await prisma.llmRequestLog.findMany({
-            where: { workspaceId },
-            orderBy: { createdAt: 'desc' },
-            take: 50
-        });
-
-        return res.json({ logs });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to fetch observability logs' });
+    @Get('logs')
+    async getObservabilityLogs(@CurrentUser() user: AuthUser) {
+        return this.llmService.getObservabilityLogs(user.workspaceId);
     }
 }

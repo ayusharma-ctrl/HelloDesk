@@ -154,7 +154,7 @@ export default function AiSettingsPage() {
     const freeTierPercent = workspace ? Math.min(100, Math.round((workspace.freeTierTokensUsed / tokenLimit) * 100)) : 0;
 
     return (
-        <AdminGuard>
+        <AdminGuard requiredPermission="llm:manage">
             <AuthenticatedLayout>
                 <div className="max-w-5xl mx-auto space-y-6">
                     <div className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4">

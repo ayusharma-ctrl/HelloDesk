@@ -1,389 +1,228 @@
-import { prisma } from '../../lib/prisma.js';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConversationsRepository } from './conversations.repository.js';
 import { logger } from '../../lib/logger.js';
 import { withRetry } from '../../lib/retry.js';
 import type { AuthUser } from '../../lib/auth.js';
 import type { ConversationListQuery } from './conversations.types.js';
-import type { SendMessageInput, SendEmailMessageInput, UpdateStatusInput, ReassignInput } from './conversations.schema.js';
 
-export async function listConversations(workspaceId: string, query: ConversationListQuery & { page?: number; limit?: number }, user: AuthUser) {
-    const isAdmin = user.roleName === 'admin';
-    const page = Math.max(1, Number(query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
-    const skip = (page - 1) * limit;
+@Injectable()
+export class ConversationsService {
+    constructor(private readonly repository: ConversationsRepository) {}
 
-    const whereClause: any = {
-        workspaceId,
-        ...(query.status && query.status !== 'all' ? { status: query.status as any } : {}),
-        ...(query.channel && query.channel !== 'all' ? { channel: query.channel as any } : {}),
-    };
+    async listConversations(workspaceId: string, query: ConversationListQuery & { page?: number; limit?: number }, user: AuthUser) {
+        const isAdmin = user.roleName === 'admin';
+        const page = Math.max(1, Number(query.page) || 1);
+        const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+        const skip = (page - 1) * limit;
 
-    if (!isAdmin) {
-        // Non-admin agents can only view conversations explicitly assigned to them
-        whereClause.assigneeId = user.id;
-    } else {
-        // Admins can see all, or filter by specific assignee or unassigned
-        if (query.assignee === 'unassigned') {
-            whereClause.assigneeId = null;
-        } else if (query.assignee && query.assignee !== 'all') {
-            whereClause.assigneeId = query.assignee;
-        }
-    }
+        const whereClause: any = {
+            workspaceId,
+            ...(query.status && query.status !== 'all' ? { status: query.status as any } : {}),
+            ...(query.channel && query.channel !== 'all' ? { channel: query.channel as any } : {}),
+        };
 
-    const [total, conversations] = await Promise.all([
-        prisma.conversation.count({ where: whereClause }),
-        prisma.conversation.findMany({
-            where: whereClause,
-            skip,
-            take: limit,
-            include: {
-                contact: true,
-                assignee: { include: { role: true } },
-                messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'desc' }, take: 1 }
-            },
-            orderBy: { updatedAt: 'desc' },
-        })
-    ]);
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-        conversations,
-        pagination: {
-            page,
-            limit,
-            total,
-            totalPages,
-            hasMore: page < totalPages,
-            nextPage: page < totalPages ? page + 1 : null,
-        }
-    };
-}
-
-export async function getConversation(id: string, workspaceId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({
-        where: { id, workspaceId },
-        include: {
-            contact: true,
-            assignee: { include: { role: true } },
-            messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'asc' } }
-        },
-    });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
-    }
-
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied: Agents can only view their own assigned conversations') as any;
-        err.status = 403;
-        throw err;
-    }
-
-    return conversation;
-}
-
-export async function addMessage(conversationId: string, workspaceId: string, input: SendMessageInput, senderUserId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, include: { contact: true } });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
-    }
-
-    if (conversation.status === 'resolved') {
-        const err = new Error('Cannot send messages to a resolved conversation. Please reopen the conversation first.') as any;
-        err.status = 400;
-        throw err;
-    }
-
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied: Agents can only reply to their own assigned conversations') as any;
-        err.status = 403;
-        throw err;
-    }
-
-    // Clean up active AI drafts once the agent sends a reply
-    await prisma.message.deleteMany({
-        where: { conversationId, isAiDraft: true }
-    });
-
-    const messageBody = input.body && input.body.trim().length > 0
-        ? input.body
-        : input.attachments && input.attachments.length > 0
-            ? `[Attachment: ${input.mediaType || 'file'}]`
-            : '';
-
-    const message = await prisma.message.create({
-        data: {
-            conversationId,
-            senderType: 'agent',
-            senderUserId,
-            body: messageBody,
-            attachments: input.attachments ?? null,
-            mediaType: input.mediaType ?? null,
-        },
-    });
-
-    await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { lastMessageId: message.id, updatedAt: new Date() },
-    });
-
-    import('../../services/ai.worker.js').then(mod => {
-        mod.requestAiSummary(conversationId);
-    });
-
-    logger.info({ conversationId, senderUserId }, 'agent message created');
-    return { conversation, message };
-}
-
-export async function addEmailMessage(conversationId: string, workspaceId: string, input: SendEmailMessageInput, senderUserId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
-        include: { contact: true, messages: { where: { emailMessageId: { not: null } }, take: 1 } },
-    });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
-    }
-
-    if (conversation.status === 'resolved') {
-        const err = new Error('Cannot send messages to a resolved conversation. Please reopen the conversation first.') as any;
-        err.status = 400;
-        throw err;
-    }
-
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied: Agents can only reply to their own assigned conversations') as any;
-        err.status = 403;
-        throw err;
-    }
-
-    const recipientEmail = conversation.contact?.email;
-    if (!recipientEmail) {
-        const err = new Error('Conversation has no contact email') as any;
-        err.status = 400;
-        throw err;
-    }
-
-    const inboundThreadId = conversation.messages[0]?.emailMessageId ?? null;
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const resendFrom = process.env.RESEND_FROM_EMAIL;
-    let outboundMessageId: string | null = null;
-
-    if (resendApiKey && resendFrom) {
-        try {
-            const response = await withRetry(() => fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    from: resendFrom,
-                    to: [recipientEmail],
-                    subject: input.subject ?? 'Re: Support request',
-                    text: input.body,
-                    headers: { 'In-Reply-To': inboundThreadId ?? '', References: inboundThreadId ?? '' },
-                }),
-            }));
-
-            if (response.ok) {
-                const data = await response.json() as { id?: string };
-                outboundMessageId = data.id ?? null;
-            } else {
-                logger.warn({ conversationId, status: response.status }, 'Resend email failed');
+        if (!isAdmin) {
+            whereClause.assigneeId = user.id;
+        } else {
+            if (query.assignee === 'unassigned') {
+                whereClause.assigneeId = null;
+            } else if (query.assignee && query.assignee !== 'all') {
+                whereClause.assigneeId = query.assignee;
             }
-        } catch (err) {
-            logger.error({ conversationId, err }, 'Resend email failed after retries');
         }
-    } else {
-        logger.warn({ conversationId }, 'Resend env vars missing — email not sent');
+
+        const [total, conversations] = await Promise.all([
+            this.repository.countConversations(whereClause),
+            this.repository.findManyConversations(whereClause, skip, limit),
+        ]);
+
+        const totalPages = Math.ceil(total / limit);
+
+        return {
+            conversations,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasMore: page < totalPages,
+                nextPage: page < totalPages ? page + 1 : null,
+            },
+        };
     }
 
-    // Clean up active AI drafts once the agent sends an email reply
-    await prisma.message.deleteMany({
-        where: { conversationId, isAiDraft: true }
-    });
+    async getConversation(id: string, workspaceId: string, user: AuthUser) {
+        const conversation = await this.repository.findConversationById(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    const message = await prisma.message.create({
-        data: { conversationId, senderType: 'agent', senderUserId, body: input.body, emailMessageId: outboundMessageId, emailInReplyTo: inboundThreadId },
-    });
+        if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageId: message.id, updatedAt: new Date() } });
-
-    import('../../services/ai.worker.js').then(mod => {
-        mod.requestAiSummary(conversationId);
-    });
-
-    return { conversation, message, sent: Boolean(outboundMessageId) };
-}
-
-export async function updateStatus(conversationId: string, workspaceId: string, input: UpdateStatusInput, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId } });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+        return conversation;
     }
 
-    // Once a conversation is resolved, only admins can update/reopen it
-    if (conversation.status === 'resolved' && user.roleName !== 'admin') {
-        const err = new Error('Only admins can update resolved conversations') as any;
-        err.status = 403;
-        throw err;
-    }
+    async addMessage(id: string, workspaceId: string, input: any, userId: string) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    // Agents can only update status of conversations assigned to them
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Agents can only update their own assigned conversations') as any;
-        err.status = 403;
-        throw err;
-    }
+        const isMediaAttachment = input.attachments && input.attachments.length > 0;
+        const bodyText =
+            input.body && input.body.trim().length > 0
+                ? input.body
+                : isMediaAttachment
+                ? `[Attachment: ${input.mediaType || 'file'}]`
+                : '';
 
-    const data: any = { status: input.status };
-    if (input.status === 'snoozed' && input.snoozedUntil) {
-        data.snoozedUntil = new Date(input.snoozedUntil);
-    }
-
-    const updated = await prisma.conversation.update({
-        where: { id: conversationId },
-        data,
-        include: { contact: true, assignee: { include: { role: true } } }
-    });
-
-    // If conversation is resolved/snoozed from open, trigger queue to assign next waiting conversation
-    if (conversation.status === 'open' && input.status !== 'open') {
-        import('../assignment/assignment.service.js').then(mod => {
-            mod.processQueue(workspaceId).catch(console.error);
+        const message = await this.repository.createMessage({
+            conversationId: id,
+            senderType: 'agent',
+            senderId: userId,
+            body: bodyText,
+            isInternalNote: input.isInternalNote ?? false,
+            mediaType: input.mediaType ?? undefined,
+            attachments: input.attachments ?? undefined,
         });
+
+        await this.repository.updateConversationDate(id);
+
+        if (!input.isInternalNote) {
+            const { requestAiSummary, requestAiDraft } = await import('../../services/ai.worker.js');
+            requestAiSummary(id);
+            requestAiDraft(id);
+        }
+
+        return { message, conversation };
     }
 
-    return updated;
-}
+    async addEmailMessage(id: string, workspaceId: string, input: any, userId: string, user: AuthUser) {
+        const conversation = await this.repository.findConversationById(id, workspaceId);
+        if (!conversation || !conversation.contact?.email) {
+            throw new BadRequestException('Conversation has no associated email contact');
+        }
 
-export async function reassign(conversationId: string, workspaceId: string, input: ReassignInput, user: AuthUser) {
-    if (user.roleName !== 'admin') {
-        const err = new Error('Only admins are authorized to reassign conversations') as any;
-        err.status = 403;
-        throw err;
+        const isMediaAttachment = input.attachments && input.attachments.length > 0;
+        const bodyText =
+            input.body && input.body.trim().length > 0
+                ? input.body
+                : isMediaAttachment
+                ? `[Attachment: ${input.mediaType || 'file'}]`
+                : '';
+
+        const message = await this.repository.createMessage({
+            conversationId: id,
+            senderType: 'agent',
+            senderId: userId,
+            body: bodyText,
+            mediaType: input.mediaType ?? undefined,
+            attachments: input.attachments ?? undefined,
+        });
+
+        await this.repository.updateConversationDate(id);
+
+        const apiKey = process.env.RESEND_API_KEY;
+        const from = process.env.RESEND_FROM_EMAIL;
+        let emailSent = false;
+
+        if (apiKey && from) {
+            try {
+                const response = await withRetry(() =>
+                    fetch('https://api.resend.com/emails', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            from,
+                            to: [conversation.contact.email],
+                            subject: `Re: Conversation #${id.slice(0, 8)}`,
+                            text: input.body,
+                        }),
+                    }),
+                );
+
+                if (response.ok) {
+                    emailSent = true;
+                    logger.info({ conversationId: id, to: conversation.contact.email }, 'Reply email sent');
+                } else {
+                    const text = await response.text();
+                    logger.warn({ conversationId: id, status: response.status, text }, 'Resend email send failed');
+                }
+            } catch (err) {
+                logger.error({ err, conversationId: id }, 'Failed sending reply email via Resend');
+            }
+        }
+
+        const { requestAiSummary, requestAiDraft } = await import('../../services/ai.worker.js');
+        requestAiSummary(id);
+        requestAiDraft(id);
+
+        return { message, emailSent };
     }
 
-    const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId } });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+    async updateStatus(id: string, workspaceId: string, input: any) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
+
+        const updated = await this.repository.updateConversationStatus(id, input.status);
+
+        if (input.status === 'open' && !updated.assigneeId) {
+            const assignmentService = await import('../assignment/assignment.service.js');
+            await assignmentService.assignConversation(id, workspaceId);
+        }
+
+        return updated;
     }
 
-    const targetAssigneeId = (!input.assigneeId || input.assigneeId === 'unassigned') ? null : input.assigneeId;
+    async reassign(id: string, workspaceId: string, input: any) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    return prisma.conversation.update({
-        where: { id: conversationId },
-        data: { assigneeId: targetAssigneeId },
-        include: { contact: true, assignee: { include: { role: true } } }
-    });
-}
-
-export async function markRead(conversationId: string, workspaceId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId } });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+        return this.repository.updateConversationAssignee(id, input.assigneeId);
     }
 
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied') as any;
-        err.status = 403;
-        throw err;
+    async markRead(id: string, workspaceId: string) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
+
+        await this.repository.updateMessagesAsRead(id);
+        return { ok: true };
     }
 
-    const updated = await prisma.message.updateMany({
-        where: { conversationId, senderType: { not: 'agent' }, readAt: null },
-        data: { readAt: new Date() },
-    });
+    async getAiSummary(id: string, workspaceId: string) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    const refreshed = await prisma.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
-        include: { contact: true, assignee: true, messages: { orderBy: { createdAt: 'asc' } } },
-    });
-
-    return { readCount: updated.count, conversation: refreshed };
-}
-
-export async function getAiSummary(conversationId: string, workspaceId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
-        select: { aiSummary: true, aiSummaryAt: true, assigneeId: true },
-    });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+        const summaryMsg = await this.repository.findAiSummary(id);
+        return { summary: summaryMsg?.body ?? null };
     }
 
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied') as any;
-        err.status = 403;
-        throw err;
+    async getAiDraft(id: string, workspaceId: string) {
+        const conversation = await this.repository.findConversationSimple(id, workspaceId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
+        }
+
+        const draftMsg = await this.repository.findAiDraft(id);
+        return { draft: draftMsg?.body ?? null };
     }
 
-    return { aiSummary: conversation.aiSummary, aiSummaryAt: conversation.aiSummaryAt };
-}
+    async rateConversation(id: string, rating: number, feedbackOption: string) {
+        if (!rating || rating < 1 || rating > 5) {
+            throw new BadRequestException('Rating must be between 1 and 5');
+        }
 
-export async function getAiDraft(conversationId: string, workspaceId: string, user: AuthUser) {
-    const conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
-        select: { id: true, assigneeId: true }
-    });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+        const updated = await this.repository.updateRating(id, rating, feedbackOption ?? '');
+        return { conversation: updated };
     }
-
-    if (user.roleName !== 'admin' && conversation.assigneeId !== user.id) {
-        const err = new Error('Access denied') as any;
-        err.status = 403;
-        throw err;
-    }
-
-    // Find the latest AI draft
-    const draftMessage = await prisma.message.findFirst({
-        where: { conversationId, isAiDraft: true },
-        orderBy: { createdAt: 'desc' }
-    });
-
-    return draftMessage;
-}
-
-export async function rateConversation(conversationId: string, rating: number, feedbackOption: string) {
-    const conversation = await prisma.conversation.findUnique({
-        where: { id: conversationId },
-        include: { contact: true }
-    });
-
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
-    }
-
-    if (conversation.status !== 'resolved') {
-        const err = new Error('Only resolved conversations can be rated') as any;
-        err.status = 400;
-        throw err;
-    }
-
-    const updated = await prisma.conversation.update({
-        where: { id: conversationId },
-        data: {
-            rating: Math.max(1, Math.min(5, rating)),
-            ratingFeedback: feedbackOption,
-            ratedAt: new Date(),
-        },
-        include: { contact: true, assignee: true }
-    });
-
-    return updated;
 }

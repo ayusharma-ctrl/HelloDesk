@@ -106,7 +106,7 @@ export default function KnowledgeBaseAdminPage() {
     };
 
     return (
-        <AdminGuard>
+        <AdminGuard requiredPermission="kb:manage">
             <AuthenticatedLayout>
                 <div className="flex justify-between items-center mb-6">
                     <div>

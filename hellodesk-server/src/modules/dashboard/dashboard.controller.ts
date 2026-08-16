@@ -1,11 +1,19 @@
-import { Request, Response } from 'express';
-import * as dashboardService from './dashboard.service.js';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { DashboardService } from './dashboard.service.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function getOverview(req: Request, res: Response) {
-    try {
-        const overview = await dashboardService.getOverview(req.user!.workspaceId);
-        return res.json({ overview });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('dashboard')
+export class DashboardController {
+    constructor(private readonly dashboardService: DashboardService) {}
+
+    @RequirePermission('dashboard:view')
+    @Get('overview')
+    async getOverview(@CurrentUser() user: AuthUser) {
+        return this.dashboardService.getOverview(user.workspaceId);
     }
 }

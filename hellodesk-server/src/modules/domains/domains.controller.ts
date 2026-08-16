@@ -1,32 +1,32 @@
-import { Request, Response } from 'express';
-import { registerDomainSchema } from './domains.schema.js';
-import * as domainsService from './domains.service.js';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { DomainsService } from './domains.service.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function registerDomain(req: Request, res: Response) {
-    try {
-        const input = registerDomainSchema.parse(req.body);
-        const domain = await domainsService.registerDomain(req.user!.workspaceId, input);
-        return res.status(201).json({ domain });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('domain:manage')
+@Controller('domains')
+export class DomainsController {
+    constructor(private readonly domainsService: DomainsService) {}
+
+    @Post()
+    async registerDomain(@CurrentUser() user: AuthUser, @Body() body: any) {
+        const domain = await this.domainsService.registerDomain(user.workspaceId, body);
+        return { domain };
     }
-}
 
-export async function verifyDomain(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const domain = await domainsService.verifyDomain(id, req.user!.workspaceId);
-        return res.json({ domain });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @Get(':id/verify')
+    async verifyDomain(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        const domain = await this.domainsService.verifyDomain(id, user.workspaceId);
+        return { domain };
     }
-}
 
-export async function getMyDomain(req: Request, res: Response) {
-    try {
-        const domain = await domainsService.getDomainForWorkspace(req.user!.workspaceId);
-        return res.json({ domain: domain ?? null });
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+    @Get('me')
+    async getMyDomain(@CurrentUser() user: AuthUser) {
+        const domain = await this.domainsService.getDomainForWorkspace(user.workspaceId);
+        return { domain };
     }
 }

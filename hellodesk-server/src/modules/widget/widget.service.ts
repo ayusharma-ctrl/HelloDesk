@@ -1,192 +1,105 @@
-import { prisma } from '../../lib/prisma.js';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { WidgetRepository } from './widget.repository.js';
+import { startConversationSchema, sendWidgetMessageSchema } from './widget.schema.js';
 import { listAgentStatuses } from '../../lib/redis.js';
-import type { StartConversationInput, SendWidgetMessageInput } from './widget.schema.js';
 import * as assignmentService from '../assignment/assignment.service.js';
+import { requestAiSummary, requestAiDraft } from '../../services/ai.worker.js';
+import crypto from 'crypto';
 
-export async function startConversation(input: StartConversationInput) {
-    const workspace = await prisma.workspace.findUnique({ where: { id: input.workspaceId } });
-    if (!workspace || !workspace.isActive) {
-        const err = new Error('Workspace not found') as any;
-        err.status = 404;
-        throw err;
-    }
+@Injectable()
+export class WidgetService {
+    constructor(private readonly repository: WidgetRepository) {}
 
-    const visitorId = input.visitorId ?? crypto.randomUUID();
-    const channel = input.email ? "email" : "chat";
+    async startConversation(body: any) {
+        const input = startConversationSchema.parse(body);
+        const workspace = await this.repository.findWorkspace(input.workspaceId);
+        if (!workspace || !workspace.isActive) {
+            throw new NotFoundException('Workspace not found');
+        }
 
-    const contact = await prisma.contact.upsert({
-        where: { visitorId },
-        update: { ...(input.email ? { email: input.email } : {}), ...(input.name ? { name: input.name } : {}) },
-        create: { workspaceId: input.workspaceId, visitorId, email: input.email, name: input.name },
-    });
+        const visitorId = input.visitorId ?? crypto.randomUUID();
+        const channel = input.email ? 'email' : 'chat';
 
-    const conversation = await prisma.conversation.create({
-        data: { workspaceId: input.workspaceId, contactId: contact.id, channel, status: 'open' },
-    });
+        const contact = await this.repository.upsertContact(visitorId, input.workspaceId, input.email, input.name);
+        const conversation = await this.repository.createConversation(input.workspaceId, contact.id, channel);
 
-    const startBody = input.body && input.body.trim().length > 0
-        ? input.body
-        : input.attachments && input.attachments.length > 0
-            ? `[Attachment: ${input.mediaType || 'file'}]`
-            : '';
+        const startBody =
+            input.body && input.body.trim().length > 0
+                ? input.body
+                : input.attachments && input.attachments.length > 0
+                ? `[Attachment: ${input.mediaType || 'file'}]`
+                : '';
 
-    const message = await prisma.message.create({
-        data: {
+        const message = await this.repository.createMessage({
             conversationId: conversation.id,
             senderType: 'contact',
             body: startBody,
-            attachments: input.attachments ?? null,
-            mediaType: input.mediaType ?? null,
-        },
-    });
+            attachments: input.attachments ?? undefined,
+            mediaType: input.mediaType ?? undefined,
+        });
 
-    await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { lastMessageId: message.id, updatedAt: new Date() },
-    });
+        await this.repository.updateConversationLastMessage(conversation.id, message.id);
+        await assignmentService.assignConversation(conversation.id, input.workspaceId);
 
-    // Run auto-assignment rules
-    await assignmentService.assignConversation(conversation.id, input.workspaceId);
+        const refreshedConversation = await this.repository.findConversationWithDetails(conversation.id);
 
-    const refreshedConversation = await prisma.conversation.findUnique({
-        where: { id: conversation.id },
-        include: { contact: true, assignee: true }
-    });
+        requestAiSummary(conversation.id);
+        requestAiDraft(conversation.id);
 
-    import('../../services/ai.worker.js').then(mod => {
-        mod.requestAiSummary(conversation.id);
-        mod.requestAiDraft(conversation.id);
-    });
-
-    return { conversation: refreshedConversation || conversation, message, visitorId };
-}
-
-export async function sendMessage(input: SendWidgetMessageInput) {
-    const conversation = await prisma.conversation.findUnique({
-        where: { id: input.conversationId },
-        include: { contact: true, assignee: true }
-    });
-    if (!conversation) {
-        const err = new Error('Conversation not found') as any;
-        err.status = 404;
-        throw err;
+        return {
+            conversation: refreshedConversation,
+            message,
+            visitorId,
+        };
     }
 
-    if (conversation.status === 'resolved') {
-        const err = new Error('This conversation has been resolved.') as any;
-        err.status = 400;
-        throw err;
-    }
+    async sendMessage(body: any) {
+        const input = sendWidgetMessageSchema.parse(body);
+        const conversation = await this.repository.findConversationSimple(input.conversationId);
+        if (!conversation || conversation.contact?.visitorId !== input.visitorId) {
+            throw new NotFoundException('Conversation not found');
+        }
 
-    const sendBody = input.body && input.body.trim().length > 0
-        ? input.body
-        : input.attachments && input.attachments.length > 0
-            ? `[Attachment: ${input.mediaType || 'file'}]`
-            : '';
+        const sendBody =
+            input.body && input.body.trim().length > 0
+                ? input.body
+                : input.attachments && input.attachments.length > 0
+                ? `[Attachment: ${input.mediaType || 'file'}]`
+                : '';
 
-    const message = await prisma.message.create({
-        data: {
+        const message = await this.repository.createMessage({
             conversationId: input.conversationId,
             senderType: 'contact',
             body: sendBody,
-            attachments: input.attachments ?? null,
-            mediaType: input.mediaType ?? null,
-        },
-    });
+            attachments: input.attachments ?? undefined,
+            mediaType: input.mediaType ?? undefined,
+        });
 
-    // Auto-unsnooze if conversation was snoozed
-    const nextStatus = conversation.status === 'snoozed' ? 'open' : conversation.status;
+        await this.repository.updateConversationLastMessage(input.conversationId, message.id);
 
-    await prisma.conversation.update({
-        where: { id: input.conversationId },
-        data: {
-            lastMessageId: message.id,
-            status: nextStatus,
-            snoozedUntil: nextStatus === 'open' ? null : conversation.snoozedUntil,
-            updatedAt: new Date()
-        },
-    });
+        requestAiSummary(input.conversationId);
+        requestAiDraft(input.conversationId);
 
-    // If conversation was unassigned or in queue, re-attempt assignment
-    if (!conversation.assigneeId) {
-        await assignmentService.assignConversation(conversation.id, conversation.workspaceId);
+        return { message, conversation };
     }
 
-    import('../../services/ai.worker.js').then(mod => {
-        mod.requestAiSummary(input.conversationId);
-        mod.requestAiDraft(input.conversationId);
-    });
-
-    return { conversation, message };
-}
-
-export async function getHistory(conversationId: string, visitorId: string) {
-    const contact = await prisma.contact.findUnique({ where: { visitorId } });
-    if (!contact) return { messages: [] };
-
-    const conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, contactId: contact.id },
-    });
-
-    if (!conversation) return { messages: [] };
-
-    // Mark agent messages as read when visitor retrieves history
-    const updateResult = await prisma.message.updateMany({
-        where: { conversationId, senderType: 'agent', isAiDraft: false, readAt: null },
-        data: { readAt: new Date() },
-    });
-
-    const refreshed = await prisma.conversation.findFirst({
-        where: { id: conversationId, contactId: contact.id },
-        include: {
-            contact: true,
-            assignee: true,
-            messages: { where: { isAiDraft: false }, orderBy: { createdAt: 'asc' } }
-        },
-    });
-
-    if (updateResult.count > 0) {
-        const io = (global as any).io;
-        if (io) {
-            io.to(`workspace:${conversation.workspaceId}`).emit('conversation:updated', {
-                conversationId,
-                conversation: refreshed
-            });
+    async getHistory(conversationId: string, visitorId: string) {
+        const conversation = await this.repository.findConversationHistory(conversationId, visitorId);
+        if (!conversation) {
+            throw new NotFoundException('Conversation not found');
         }
+        return { conversation, messages: conversation.messages };
     }
 
-    const queueInfo = await assignmentService.getQueueStatus(conversationId, conversation.workspaceId);
+    async kbSuggestions(q: string, workspaceId?: string) {
+        const articles = await this.repository.findKbSuggestions(q, workspaceId);
+        return { articles };
+    }
 
-    return {
-        messages: refreshed?.messages ?? [],
-        status: refreshed?.status ?? 'open',
-        assigneeName: refreshed?.assignee?.name,
-        ...queueInfo
-    };
-}
-
-export async function kbSuggestions(q: string, workspaceId?: string) {
-    if (!q.trim()) return [];
-    return prisma.article.findMany({
-        where: {
-            status: 'published',
-            ...(workspaceId ? { workspaceId } : {}),
-            OR: [
-                { title: { contains: q.trim(), mode: 'insensitive' } },
-                { content: { contains: q.trim(), mode: 'insensitive' } },
-            ],
-        },
-        select: { id: true, title: true, slug: true },
-        take: 3,
-    });
-}
-
-export async function getStatus(workspaceId: string) {
-    if (!workspaceId) return false;
-    try {
-        const agents = await listAgentStatuses(workspaceId);
-        return agents.some(a => a.status === 'available' || a.status === 'busy');
-    } catch {
-        return false;
+    async getStatus(workspaceId: string) {
+        if (!workspaceId) return { online: false };
+        const statuses = await listAgentStatuses(workspaceId);
+        const online = statuses.some((s: any) => s.status === 'available' || s.status === 'busy');
+        return { online };
     }
 }

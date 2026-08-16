@@ -10,6 +10,8 @@ const permissions = [
   'kb:manage',
   'domain:manage',
   'team:view',
+  'theme:manage',
+  'llm:manage',
 ];
 
 async function main() {

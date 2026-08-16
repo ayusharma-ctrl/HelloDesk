@@ -1,86 +1,72 @@
-import { Request, Response } from 'express';
-import { createCategorySchema, createArticleSchema, updateArticleSchema } from './kb.schema.js';
-import * as kbService from './kb.service.js';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Headers, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { KbService } from './kb.service.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function publicSearch(req: Request, res: Response) {
-    try {
-        const q = String(req.query.q ?? '');
-        const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : undefined;
-        const host = req.headers['x-forwarded-host'] ? String(req.headers['x-forwarded-host']) : req.headers.host;
-        const { articles, workspace } = await kbService.publicSearch(q, workspaceId, host);
-        return res.json({ articles, workspace });
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+@Controller('kb')
+export class KbController {
+    constructor(private readonly kbService: KbService) {}
+
+    @Get('public/search')
+    async publicSearch(@Query('q') q?: string, @Query('workspaceId') workspaceId?: string, @Headers('host') hostHeader?: string, @Headers('x-forwarded-host') fwdHost?: string) {
+        const host = fwdHost ? String(fwdHost) : hostHeader;
+        return this.kbService.publicSearch(q ?? '', workspaceId, host);
     }
-}
 
-export async function publicGetBySlug(req: Request, res: Response) {
-    try {
-        const slug = Array.isArray(req.params.slug) ? req.params.slug[0] : req.params.slug;
-        const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : undefined;
-        const host = req.headers['x-forwarded-host'] ? String(req.headers['x-forwarded-host']) : req.headers.host;
-        const article = await kbService.publicGetBySlug(slug, workspaceId, host);
-        return res.json({ article });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @Get('public/articles/:slug')
+    async publicGetBySlug(@Param('slug') slug: string, @Query('workspaceId') workspaceId?: string, @Headers('host') hostHeader?: string, @Headers('x-forwarded-host') fwdHost?: string) {
+        const host = fwdHost ? String(fwdHost) : hostHeader;
+        const article = await this.kbService.publicGetBySlug(slug, workspaceId, host);
+        return { article };
     }
-}
 
-export async function listCategories(req: Request, res: Response) {
-    try {
-        const categories = await kbService.listCategories(req.user!.workspaceId);
-        return res.json({ categories });
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Get('categories')
+    async listCategories(@CurrentUser() user: AuthUser) {
+        const categories = await this.kbService.listCategories(user.workspaceId);
+        return { categories };
     }
-}
 
-export async function createCategory(req: Request, res: Response) {
-    try {
-        const input = createCategorySchema.parse(req.body);
-        const category = await kbService.createCategory(req.user!.workspaceId, input);
-        return res.status(201).json({ category });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Post('categories')
+    async createCategory(@CurrentUser() user: AuthUser, @Body() body: any) {
+        const category = await this.kbService.createCategory(user.workspaceId, body);
+        return { category };
     }
-}
 
-export async function listArticles(req: Request, res: Response) {
-    try {
-        const articles = await kbService.listArticles(req.user!.workspaceId);
-        return res.json({ articles });
-    } catch (err: any) {
-        return res.status(500).json({ error: 'Server error' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Get('articles')
+    async listArticles(@CurrentUser() user: AuthUser) {
+        const articles = await this.kbService.listArticles(user.workspaceId);
+        return { articles };
     }
-}
 
-export async function createArticle(req: Request, res: Response) {
-    try {
-        const input = createArticleSchema.parse(req.body);
-        const article = await kbService.createArticle(req.user!.workspaceId, input);
-        return res.status(201).json({ article });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Post('articles')
+    async createArticle(@CurrentUser() user: AuthUser, @Body() body: any) {
+        const article = await this.kbService.createArticle(user.workspaceId, body);
+        return { article };
     }
-}
 
-export async function updateArticle(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const input = updateArticleSchema.parse(req.body);
-        const article = await kbService.updateArticle(id, req.user!.workspaceId, input);
-        return res.json({ article });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Put('articles/:id')
+    async updateArticle(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const article = await this.kbService.updateArticle(id, user.workspaceId, body);
+        return { article };
     }
-}
 
-export async function deleteArticle(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        await kbService.deleteArticle(id, req.user!.workspaceId);
-        return res.json({ ok: true });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('kb:manage')
+    @Delete('articles/:id')
+    async deleteArticle(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.kbService.deleteArticle(id, user.workspaceId);
     }
 }

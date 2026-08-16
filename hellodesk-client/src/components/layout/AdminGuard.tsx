@@ -4,15 +4,20 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCurrentUser } from '@/features/auth/api/me';
 
-export default function AdminGuard({ children }: { children: React.ReactNode }) {
+export default function AdminGuard({ children, requiredPermission }: { children: React.ReactNode; requiredPermission?: string }) {
     const { data: me, isLoading } = useCurrentUser();
     const router = useRouter();
 
+    const hasAccess = me && (
+        me.role === 'admin' ||
+        (requiredPermission && me.permissions?.includes(requiredPermission))
+    );
+
     useEffect(() => {
-        if (!isLoading && me && me.role !== 'admin') {
+        if (!isLoading && me && !hasAccess) {
             router.replace('/inbox');
         }
-    }, [me, isLoading, router]);
+    }, [me, isLoading, hasAccess, router]);
 
     if (isLoading) return (
         <div className="min-h-screen flex items-center justify-center text-slate-500">
@@ -20,7 +25,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         </div>
     );
 
-    if (!me || me.role !== 'admin') return null;
+    if (!hasAccess) return null;
 
     return <>{children}</>;
 }

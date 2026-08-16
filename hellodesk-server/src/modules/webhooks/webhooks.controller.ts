@@ -1,22 +1,22 @@
-import { Request, Response } from 'express';
-import * as webhooksService from './webhooks.service.js';
-import { logger } from '../../lib/logger.js';
+import { Controller, Post, Body, Headers, UseGuards } from '@nestjs/common';
+import { WebhooksService } from './webhooks.service.js';
+import { getIoInstance } from '../../events.gateway.js';
+import { RateLimitGuard, RateLimit } from '../../common/guards/rate-limit.guard.js';
 import type { ResendInboundPayload } from './webhooks.types.js';
 
-export async function inboundEmail(req: Request, res: Response) {
-    try {
-        const workspaceId = req.headers['x-workspace-id'] as string | undefined;
-        if (!workspaceId) return res.status(400).json({ error: 'x-workspace-id header is required' });
+@UseGuards(RateLimitGuard)
+@Controller('webhooks')
+export class WebhooksController {
+    constructor(private readonly webhooksService: WebhooksService) {}
 
-        const payload = req.body as ResendInboundPayload;
-        const result = await webhooksService.processInboundEmail(workspaceId, payload);
-
-        const io = req.app.get('io');
-        io.to(`workspace:${workspaceId}`).emit('message:created', { conversationId: result.conversationId, message: result.message });
-
-        return res.status(201).json({ ok: true, conversationId: result.conversationId });
-    } catch (err: any) {
-        logger.warn({ err }, 'inbound email webhook error');
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @RateLimit('webhook', 20, 1 / 3)
+    @Post('email/inbound')
+    async inboundEmail(@Headers('x-workspace-id') workspaceId: string, @Body() payload: ResendInboundPayload) {
+        const result = await this.webhooksService.processInboundEmail(workspaceId, payload);
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('message:created', { conversationId: result.conversationId, message: result.message });
+        }
+        return { ok: true, conversationId: result.conversationId };
     }
 }

@@ -1,71 +1,61 @@
-import { prisma } from '../../lib/prisma.js';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { DomainsRepository } from './domains.repository.js';
+import { registerDomainSchema } from './domains.schema.js';
 import { logger } from '../../lib/logger.js';
-import type { RegisterDomainInput } from './domains.schema.js';
 import crypto from 'crypto';
 
-function generateVerificationToken(): string {
-    return 'verify-' + crypto.randomBytes(32).toString('hex');
-}
+@Injectable()
+export class DomainsService {
+    constructor(private readonly repository: DomainsRepository) {}
 
-export async function registerDomain(workspaceId: string, input: RegisterDomainInput) {
-    const existing = await prisma.customDomain.findUnique({ where: { domain: input.domain } });
-    if (existing) {
-        const err = new Error('Domain already registered') as any;
-        err.status = 409;
-        throw err;
+    private generateVerificationToken(): string {
+        return 'verify-' + crypto.randomBytes(32).toString('hex');
     }
 
-    const record = await prisma.customDomain.create({
-        data: {
-            workspaceId,
-            domain: input.domain,
-            verificationToken: generateVerificationToken(),
-        },
-    });
+    async registerDomain(workspaceId: string, body: any) {
+        const input = registerDomainSchema.parse(body);
+        const existing = await this.repository.findUniqueDomain(input.domain);
+        if (existing) {
+            throw new ConflictException('Domain already registered');
+        }
 
-    logger.info({ workspaceId, domain: input.domain }, 'domain registered');
-    return record;
-}
-
-export async function verifyDomain(id: string, workspaceId: string) {
-    const record = await prisma.customDomain.findFirst({ where: { id, workspaceId } });
-    if (!record) {
-        const err = new Error('Domain not found') as any;
-        err.status = 404;
-        throw err;
-    }
-
-    if (record.verificationStatus === 'verified') {
+        const record = await this.repository.createCustomDomain(workspaceId, input.domain, this.generateVerificationToken());
+        logger.info({ workspaceId, domain: input.domain }, 'domain registered');
         return record;
     }
 
-    // Attempt DNS TXT lookup to check verification token
-    let verified = false;
-    try {
-        const { promises: dns } = await import('dns');
-        const txtRecords = await dns.resolveTxt(`_hellodesk.${record.domain}`).catch(() => []);
-        verified = txtRecords.some((r) => r.join('').includes(record.verificationToken));
-    } catch (err) {
-        logger.warn({ id, domain: record.domain }, 'DNS lookup failed');
+    async verifyDomain(id: string, workspaceId: string) {
+        const record = await this.repository.findDomainInWorkspace(id, workspaceId);
+        if (!record) {
+            throw new NotFoundException('Domain not found');
+        }
+
+        if (record.verificationStatus === 'verified') {
+            return record;
+        }
+
+        let verified = false;
+        try {
+            const { promises: dns } = await import('dns');
+            const txtRecords = await dns.resolveTxt(`_hellodesk.${record.domain}`).catch(() => []);
+            verified = txtRecords.some((r) => r.join('').includes(record.verificationToken));
+        } catch (err) {
+            logger.warn({ id, domain: record.domain }, 'DNS lookup failed');
+        }
+
+        if (verified) {
+            const updated = await this.repository.updateVerificationStatus(id, 'verified', new Date());
+            logger.info({ id, domain: record.domain }, 'domain verified');
+            return updated;
+        } else {
+            const updated = await this.repository.updateVerificationStatus(id, 'failed');
+            logger.warn({ id, domain: record.domain }, 'domain verification failed');
+            return updated;
+        }
     }
 
-    if (verified) {
-        const updated = await prisma.customDomain.update({
-            where: { id },
-            data: { verificationStatus: 'verified', sslIssuedAt: new Date() },
-        });
-        logger.info({ id, domain: record.domain }, 'domain verified');
-        return updated;
-    } else {
-        const updated = await prisma.customDomain.update({
-            where: { id },
-            data: { verificationStatus: 'failed' },
-        });
-        logger.warn({ id, domain: record.domain }, 'domain verification failed');
-        return updated;
+    async getDomainForWorkspace(workspaceId: string) {
+        const domain = await this.repository.findDomainForWorkspace(workspaceId);
+        return domain ?? null;
     }
-}
-
-export async function getDomainForWorkspace(workspaceId: string) {
-    return prisma.customDomain.findUnique({ where: { workspaceId } });
 }

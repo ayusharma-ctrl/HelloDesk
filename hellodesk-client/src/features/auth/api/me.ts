@@ -6,6 +6,7 @@ export interface CurrentUser {
     email: string;
     name: string;
     role: string;
+    permissions?: string[];
     workspace: { id: string; name: string; shortName?: string | null; logoUrl?: string | null; theme?: any };
 }
 

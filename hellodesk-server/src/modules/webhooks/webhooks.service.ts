@@ -1,74 +1,63 @@
-import { prisma } from '../../lib/prisma.js';
-import { logger } from '../../lib/logger.js';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { WebhooksRepository } from './webhooks.repository.js';
 import type { ResendInboundPayload } from './webhooks.types.js';
+import * as assignmentService from '../assignment/assignment.service.js';
+import { requestAiSummary, requestAiDraft } from '../../services/ai.worker.js';
+import { logger } from '../../lib/logger.js';
 
-export async function processInboundEmail(workspaceId: string, payload: ResendInboundPayload) {
-    const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-    if (!workspace || !workspace.isActive) {
-        const err = new Error('Workspace not found') as any;
-        err.status = 404;
-        throw err;
-    }
+@Injectable()
+export class WebhooksService {
+    constructor(private readonly repository: WebhooksRepository) {}
 
-    const senderEmail = payload.from ?? '';
-    const body = payload.text ?? payload.html ?? '';
-    const inboundMessageId = payload.headers?.['message-id'];
-    const inReplyTo = payload.headers?.['in-reply-to'];
-    const references = payload.headers?.references;
+    async processInboundEmail(workspaceId: string, payload: ResendInboundPayload) {
+        const workspace = await this.repository.findWorkspace(workspaceId);
+        if (!workspace || !workspace.isActive) {
+            throw new NotFoundException('Workspace not found');
+        }
 
-    // Try to thread to existing conversation by In-Reply-To / References headers
-    const threadCandidates = [inReplyTo, references].filter((v): v is string => Boolean(v));
-    let conversation: Awaited<ReturnType<typeof prisma.conversation.findFirst>> = null;
+        const senderEmail = payload.from ?? '';
+        const body = payload.text ?? payload.html ?? '';
+        const inboundMessageId = payload.headers?.['message-id'];
+        const inReplyTo = payload.headers?.['in-reply-to'];
+        const references = payload.headers?.references;
 
-    if (threadCandidates.length > 0) {
-        conversation = await prisma.conversation.findFirst({
-            where: {
-                workspaceId,
-                channel: 'email',
-                messages: { some: { OR: [{ emailMessageId: { in: threadCandidates } }, { emailInReplyTo: { in: threadCandidates } }] } },
-            },
-        });
-    }
+        const threadCandidates = [inReplyTo, references].filter((v): v is string => Boolean(v));
+        let conversation = null;
 
-    // Find or create contact by email
-    let contact = await prisma.contact.findFirst({ where: { workspaceId, email: senderEmail } });
-    if (!contact) {
-        contact = await prisma.contact.create({ data: { workspaceId, email: senderEmail, name: senderEmail } });
-    }
+        if (threadCandidates.length > 0) {
+            conversation = await this.repository.findThreadConversation(workspaceId, threadCandidates);
+        }
 
-    let isNew = false;
-    // Create new conversation if no thread found
-    if (!conversation) {
-        conversation = await prisma.conversation.create({
-            data: { workspaceId, contactId: contact.id, channel: 'email', status: 'open' },
-        });
-        isNew = true;
-    }
+        let contact = await this.repository.findContactByEmail(workspaceId, senderEmail);
+        if (!contact) {
+            contact = await this.repository.createContact(workspaceId, senderEmail, senderEmail);
+        }
 
-    const message = await prisma.message.create({
-        data: {
+        let isNew = false;
+        if (!conversation) {
+            conversation = await this.repository.createConversation(workspaceId, contact.id);
+            isNew = true;
+        }
+
+        const message = await this.repository.createMessage({
             conversationId: conversation.id,
             senderType: 'contact',
             body,
             emailMessageId: inboundMessageId,
-            emailInReplyTo: inReplyTo ?? references ?? null,
-        },
-    });
+            emailInReplyTo: inReplyTo ?? references ?? undefined,
+        });
 
-    await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { contactId: contact.id, lastMessageId: message.id, updatedAt: new Date(), ...(isNew ? {} : { status: 'open' }) },
-    });
+        await this.repository.updateConversationOnInbound(conversation.id, contact.id, message.id, isNew);
 
-    if (isNew) {
-        import('../assignment/assignment.service.js').then(mod => mod.assignConversation(conversation!.id, workspaceId));
+        if (isNew) {
+            await assignmentService.assignConversation(conversation.id, workspaceId);
+        }
+
+        requestAiSummary(conversation.id);
+        requestAiDraft(conversation.id);
+
+        logger.info({ conversationId: conversation.id, isNew, senderEmail }, 'Inbound email processed');
+
+        return { conversationId: conversation.id, message };
     }
-
-    import('../../services/ai.worker.js').then(mod => {
-        mod.requestAiSummary(conversation!.id);
-        mod.requestAiDraft(conversation!.id);
-    });
-
-    logger.info({ workspaceId, conversationId: conversation.id }, 'email webhook processed');
-    return { conversationId: conversation.id, message };
 }

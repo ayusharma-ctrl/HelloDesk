@@ -1,18 +1,18 @@
-import { Request, Response } from 'express';
+import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { getStorageProvider } from '../../services/storage.service.js';
-import { prisma } from '../../lib/prisma.js';
 
-const storage = getStorageProvider();
-
-export async function uploadMedia(req: Request, res: Response) {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No media file provided' });
+@Controller('upload')
+export class UploadController {
+    @Post()
+    @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+    async uploadFile(@UploadedFile() file: any) {
+        if (!file) {
+            throw new BadRequestException('No file provided');
         }
 
-        const { url, mediaType } = await storage.uploadFile(req.file);
-        return res.json({ url, mediaType, originalName: req.file.originalname });
-    } catch (err: any) {
-        return res.status(500).json({ error: err?.message ?? 'Failed to upload file' });
+        const storage = getStorageProvider();
+        const result = await storage.uploadFile(file);
+        return result;
     }
 }

@@ -28,7 +28,7 @@ export default function DomainSettingsPage() {
     };
 
     return (
-        <AdminGuard>
+        <AdminGuard requiredPermission="domain:manage">
             <AuthenticatedLayout>
                 <div className="max-w-4xl mx-auto">
                     <div className="mb-6">

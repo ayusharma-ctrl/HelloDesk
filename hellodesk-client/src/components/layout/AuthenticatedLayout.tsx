@@ -14,10 +14,10 @@ const navItems = [
 ];
 
 const adminItems = [
-    { href: '/settings/domains', label: '🌐 Custom Domain' },
-    { href: '/settings/theme', label: '🎨 Theme & Branding' },
-    { href: '/settings/ai', label: '🤖 AI & Models' },
-    { href: '/kb/admin', label: '✏️ KB Authoring' },
+    { href: '/settings/domains', label: '🌐 Custom Domain', permission: 'domain:manage' },
+    { href: '/settings/theme', label: '🎨 Theme & Branding', permission: 'theme:manage' },
+    { href: '/settings/ai', label: '🤖 AI & Models', permission: 'llm:manage' },
+    { href: '/kb/admin', label: '✏️ KB Authoring', permission: 'kb:manage' },
 ];
 
 export function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -103,15 +103,21 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
                 {navItems.map(item => <NavLink key={item.href} {...item} />)}
 
-                {/* Admin-only settings section */}
-                {isAdmin && (
-                    <>
-                        <div className="pt-4 pb-1">
-                            <p className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Settings</p>
-                        </div>
-                        {adminItems.map(item => <NavLink key={item.href} {...item} />)}
-                    </>
-                )}
+                {/* Settings section */}
+                {(() => {
+                    const visibleSettings = adminItems.filter(item =>
+                        isAdmin || (item.permission && me?.permissions?.includes(item.permission))
+                    );
+                    if (visibleSettings.length === 0) return null;
+                    return (
+                        <>
+                            <div className="pt-4 pb-1">
+                                <p className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Settings</p>
+                            </div>
+                            {visibleSettings.map(item => <NavLink key={item.href} {...item} />)}
+                        </>
+                    );
+                })()}
             </nav>
 
             {/* Logout */}

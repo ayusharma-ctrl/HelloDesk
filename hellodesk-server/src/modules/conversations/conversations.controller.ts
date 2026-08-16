@@ -1,136 +1,114 @@
-import { Request, Response } from 'express';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { sendMessageSchema, sendEmailMessageSchema, updateStatusSchema, reassignSchema } from './conversations.schema.js';
-import * as conversationsService from './conversations.service.js';
+import { ConversationsService } from './conversations.service.js';
+import { getIoInstance } from '../../events.gateway.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-function getId(req: Request): string {
-    return Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-}
+@Controller('conversations')
+export class ConversationsController {
+    constructor(private readonly conversationsService: ConversationsService) {}
 
-export async function listConversations(req: Request, res: Response) {
-    try {
-        const { status, assignee, channel, page, limit } = req.query as Record<string, string | undefined>;
-        const result = await conversationsService.listConversations(
-            req.user!.workspaceId,
+    @UseGuards(JwtAuthGuard)
+    @Get()
+    async listConversations(
+        @CurrentUser() user: AuthUser,
+        @Query('status') status?: string,
+        @Query('assignee') assignee?: string,
+        @Query('channel') channel?: string,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.conversationsService.listConversations(
+            user.workspaceId,
             { status, assignee, channel, page: page ? Number(page) : undefined, limit: limit ? Number(limit) : undefined },
-            req.user!
+            user,
         );
-        return res.json(result);
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
     }
-}
 
-export async function getConversation(req: Request, res: Response) {
-    try {
-        const conversation = await conversationsService.getConversation(getId(req), req.user!.workspaceId, req.user!);
-        return res.json({ conversation });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @UseGuards(JwtAuthGuard)
+    @Get(':id')
+    async getConversation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        const conversation = await this.conversationsService.getConversation(id, user.workspaceId, user);
+        return { conversation };
     }
-}
 
-export async function addMessage(req: Request, res: Response) {
-    try {
-        const input = sendMessageSchema.parse(req.body);
-        const { conversation, message } = await conversationsService.addMessage(getId(req), req.user!.workspaceId, input, req.user!.id, req.user!);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('message:created', { conversationId: conversation.id, message });
-
-        if (conversation.contact?.visitorId) {
-            io.to(`visitor:${conversation.contact.visitorId}`).emit('message:created', { conversationId: conversation.id, message });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('conversation:reply')
+    @Post(':id/messages')
+    async addMessage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const input = sendMessageSchema.parse(body);
+        const { message } = await this.conversationsService.addMessage(id, user.workspaceId, input, user.id);
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${user.workspaceId}`).emit('message:created', { conversationId: id, message });
         }
-
-        return res.status(201).json({ message });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Server error' });
+        return { message };
     }
-}
 
-export async function addEmailMessage(req: Request, res: Response) {
-    try {
-        const input = sendEmailMessageSchema.parse(req.body);
-        const result = await conversationsService.addEmailMessage(getId(req), req.user!.workspaceId, input, req.user!.id, req.user!);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('message:created', { conversationId: getId(req), message: result.message });
-        return res.status(201).json(result);
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Server error' });
-    }
-}
-
-export async function updateStatus(req: Request, res: Response) {
-    try {
-        const input = updateStatusSchema.parse(req.body);
-        const updated = await conversationsService.updateStatus(getId(req), req.user!.workspaceId, input, req.user!);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
-        if (updated?.contact?.visitorId) {
-            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('conversation:reply')
+    @Post(':id/messages/email')
+    async addEmailMessage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const input = sendEmailMessageSchema.parse(body);
+        const result = await this.conversationsService.addEmailMessage(id, user.workspaceId, input, user.id, user);
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${user.workspaceId}`).emit('message:created', { conversationId: id, message: result.message });
         }
-        return res.json({ conversation: updated });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Server error' });
+        return result;
     }
-}
 
-export async function reassign(req: Request, res: Response) {
-    try {
-        const input = reassignSchema.parse(req.body);
-        const updated = await conversationsService.reassign(getId(req), req.user!.workspaceId, input, req.user!);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
-        if (updated?.contact?.visitorId) {
-            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('conversation:status:update')
+    @Patch(':id/status')
+    async updateStatus(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const input = updateStatusSchema.parse(body);
+        const updated = await this.conversationsService.updateStatus(id, user.workspaceId, input);
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversation: updated });
         }
-        return res.json({ conversation: updated });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Server error' });
+        return { conversation: updated };
     }
-}
 
-export async function markRead(req: Request, res: Response) {
-    try {
-        const result = await conversationsService.markRead(getId(req), req.user!.workspaceId, req.user!);
-        const io = req.app.get('io');
-        io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:updated', { conversationId: getId(req), conversation: result.conversation });
-        if (result.conversation?.contact?.visitorId) {
-            io.to(`visitor:${result.conversation.contact.visitorId}`).emit('conversation:updated', { conversationId: getId(req), conversation: result.conversation });
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('conversation:reassign')
+    @Patch(':id/reassign')
+    async reassign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const input = reassignSchema.parse(body);
+        const updated = await this.conversationsService.reassign(id, user.workspaceId, input);
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversation: updated });
         }
-        return res.json({ ok: true, readCount: result.readCount });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+        return { conversation: updated };
     }
-}
 
-export async function getAiSummary(req: Request, res: Response) {
-    try {
-        const summary = await conversationsService.getAiSummary(getId(req), req.user!.workspaceId, req.user!);
-        return res.json({ summary });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @UseGuards(JwtAuthGuard)
+    @Patch(':id/read')
+    async markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.conversationsService.markRead(id, user.workspaceId);
     }
-}
 
-export async function getAiDraft(req: Request, res: Response) {
-    try {
-        const draft = await conversationsService.getAiDraft(getId(req), req.user!.workspaceId, req.user!);
-        return res.json({ draft });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+    @UseGuards(JwtAuthGuard)
+    @Get(':id/ai-summary')
+    async getAiSummary(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.conversationsService.getAiSummary(id, user.workspaceId);
     }
-}
 
-export async function rateConversation(req: Request, res: Response) {
-    try {
-        const { rating, feedbackOption } = req.body;
-        const updated = await conversationsService.rateConversation(getId(req), Number(rating), String(feedbackOption));
-        const io = req.app.get('io');
-        io.to(`workspace:${updated.workspaceId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
-        if (updated?.contact?.visitorId) {
-            io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: getId(req), conversation: updated });
-        }
-        return res.json({ conversation: updated });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Failed to record rating' });
+    @UseGuards(JwtAuthGuard)
+    @Get(':id/ai-draft')
+    async getAiDraft(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.conversationsService.getAiDraft(id, user.workspaceId);
+    }
+
+    @Post(':id/rate')
+    async rateConversation(@Param('id') id: string, @Body() body: any) {
+        const { rating, feedbackOption } = body;
+        return this.conversationsService.rateConversation(id, Number(rating), feedbackOption);
     }
 }

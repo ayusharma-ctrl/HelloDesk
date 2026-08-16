@@ -105,7 +105,7 @@ export default function ThemeSettingsPage() {
     };
 
     return (
-        <AdminGuard>
+        <AdminGuard requiredPermission="theme:manage">
             <AuthenticatedLayout>
                 <div className="max-w-4xl mx-auto space-y-6">
                     <div className="mb-6">

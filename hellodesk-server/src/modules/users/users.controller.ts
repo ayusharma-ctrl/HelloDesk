@@ -1,46 +1,41 @@
-import { Request, Response } from 'express';
-import { inviteSchema, updateRoleSchema, updateStatusSchema } from './users.schema.js';
-import * as usersService from './users.service.js';
-import { logger } from '../../lib/logger.js';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { UsersService } from './users.service.js';
+import type { AuthUser } from '../../lib/auth.js';
 
-export async function listUsers(req: Request, res: Response) {
-    try {
-        const users = await usersService.listUsers(req.user!.workspaceId);
-        return res.json({ users });
-    } catch (err: any) {
-        return res.status(err?.status ?? 500).json({ error: err?.message ?? 'Server error' });
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('users')
+export class UsersController {
+    constructor(private readonly usersService: UsersService) {}
+
+    @RequirePermission('team:view')
+    @Get()
+    async listUsers(@CurrentUser() user: AuthUser) {
+        const users = await this.usersService.listUsers(user.workspaceId);
+        return { users };
     }
-}
 
-export async function inviteUser(req: Request, res: Response) {
-    try {
-        const input = inviteSchema.parse(req.body);
-        const user = await usersService.inviteUser(input, req.user!.workspaceId);
-        return res.status(201).json({ user });
-    } catch (err: any) {
-        logger.warn({ err }, 'invite error');
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid invite payload' });
+    @RequirePermission('agent:manage')
+    @Post('invite')
+    async inviteUser(@CurrentUser() user: AuthUser, @Body() body: any) {
+        const invited = await this.usersService.inviteUser(user.workspaceId, body);
+        return { user: invited };
     }
-}
 
-export async function updateRole(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const input = updateRoleSchema.parse(req.body);
-        const user = await usersService.updateRole(id, req.user!.workspaceId, input);
-        return res.json({ user });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+    @RequirePermission('agent:manage')
+    @Patch(':id/role')
+    async updateRole(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const updated = await this.usersService.updateRole(id, user.workspaceId, body);
+        return { user: updated };
     }
-}
 
-export async function updateStatus(req: Request, res: Response) {
-    try {
-        const id = req.params.id as string;
-        const input = updateStatusSchema.parse(req.body);
-        const user = await usersService.updateStatus(id, req.user!.workspaceId, input);
-        return res.json({ user });
-    } catch (err: any) {
-        return res.status(err?.status ?? 400).json({ error: err?.message ?? 'Invalid payload' });
+    @RequirePermission('agent:manage')
+    @Patch(':id/status')
+    async updateStatus(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+        const updated = await this.usersService.updateStatus(id, user.workspaceId, body);
+        return { user: updated };
     }
 }
