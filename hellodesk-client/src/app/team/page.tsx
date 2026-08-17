@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTeam, useInviteUser, useUpdateUserRole, useUpdateUserStatus, useAgentPresence } from '@/features/team/api/team';
 import { useCurrentUser } from '@/features/auth/api/me';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { apiClient, getErrorMessage } from '@/lib/api-client';
 
 const PRESENCE_COLORS: Record<string, string> = {
     available: 'bg-green-400',
@@ -13,6 +15,12 @@ const PRESENCE_COLORS: Record<string, string> = {
     away: 'bg-amber-400',
     offline: 'bg-slate-300',
 };
+
+interface PermissionItem {
+    id: string;
+    key: string;
+    description: string | null;
+}
 
 function PresenceDot({ status }: { status?: string }) {
     const key = status ?? 'offline';
@@ -33,6 +41,7 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 export default function TeamPage() {
+    const queryClient = useQueryClient();
     const { data: me } = useCurrentUser();
     const { data: users = [], isLoading, error } = useTeam();
     const { data: presence = {} } = useAgentPresence(me?.workspace?.id ?? '');
@@ -46,7 +55,47 @@ export default function TeamPage() {
     const [inviteError, setInviteError] = useState<string | null>(null);
     const [inviteSuccess, setInviteSuccess] = useState(false);
 
+    // Permission Management State
+    const [isDefaultModalOpen, setIsDefaultModalOpen] = useState(false);
+    const [selectedUserForPerms, setSelectedUserForPerms] = useState<{ id: string; name: string } | null>(null);
+    const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+
     const isAdmin = me?.role === 'admin';
+
+    // Fetch all available system permissions
+    const { data: allPermissions = [] } = useQuery<PermissionItem[]>({
+        queryKey: ['all-permissions'],
+        queryFn: async () => {
+            const res = await apiClient.get('/api/v1/permissions');
+            return res.data.permissions;
+        },
+        enabled: isAdmin,
+    });
+
+    // Fetch workspace default agent permissions
+    const { data: workspaceDefaults = [], refetch: refetchDefaults } = useQuery<PermissionItem[]>({
+        queryKey: ['workspace-default-permissions'],
+        queryFn: async () => {
+            const res = await apiClient.get('/api/v1/permissions/workspace/defaults');
+            return res.data.defaults;
+        },
+        enabled: isAdmin,
+    });
+
+    // Fetch user permission overrides when user modal opens
+    const { data: userPermDetails, refetch: refetchUserPerms } = useQuery<{
+        hasCustomOverrides: boolean;
+        effectivePermissions: string[];
+        customPermissions: string[];
+    }>({
+        queryKey: ['user-permissions', selectedUserForPerms?.id],
+        queryFn: async () => {
+            if (!selectedUserForPerms) return { hasCustomOverrides: false, effectivePermissions: [], customPermissions: [] };
+            const res = await apiClient.get(`/api/v1/permissions/users/${selectedUserForPerms.id}`);
+            return res.data;
+        },
+        enabled: !!selectedUserForPerms && isAdmin,
+    });
 
     const handleInvite = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,9 +108,63 @@ export default function TeamPage() {
             setInviteRole('agent');
             setInviteSuccess(true);
         } catch (err: any) {
-            setInviteError(err.message);
+            setInviteError(getErrorMessage(err, 'Failed to send invite'));
         }
     };
+
+    // Save Workspace Defaults
+    const saveDefaultsMutation = useMutation({
+        mutationFn: async (keys: string[]) => {
+            const res = await apiClient.put('/api/v1/permissions/workspace/defaults', { permissionKeys: keys });
+            return res.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['workspace-default-permissions'] });
+            queryClient.invalidateQueries({ queryKey: ['me'] });
+            setPermissionMessage('Workspace default agent permissions updated!');
+            setTimeout(() => setPermissionMessage(null), 3000);
+            setIsDefaultModalOpen(false);
+        },
+        onError: (err: any) => {
+            setPermissionMessage(getErrorMessage(err, 'Failed to update workspace default permissions'));
+        }
+    });
+
+    // Save Custom User Permissions
+    const saveUserPermsMutation = useMutation({
+        mutationFn: async ({ userId, keys }: { userId: string; keys: string[] }) => {
+            const res = await apiClient.put(`/api/v1/permissions/users/${userId}`, { permissionKeys: keys });
+            return res.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['user-permissions', selectedUserForPerms?.id] });
+            queryClient.invalidateQueries({ queryKey: ['me'] });
+            setPermissionMessage('User permissions updated!');
+            setTimeout(() => setPermissionMessage(null), 3000);
+            setSelectedUserForPerms(null);
+        },
+        onError: (err: any) => {
+            setPermissionMessage(getErrorMessage(err, 'Failed to update user permissions'));
+        }
+    });
+
+    // Reset User Permissions to Defaults
+    const resetUserPermsMutation = useMutation({
+        mutationFn: async (userId: string) => {
+            const res = await apiClient.delete(`/api/v1/permissions/users/${userId}`);
+            return res.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['user-permissions', selectedUserForPerms?.id] });
+            queryClient.invalidateQueries({ queryKey: ['me'] });
+            setPermissionMessage('User permissions reset to workspace defaults!');
+            setTimeout(() => setPermissionMessage(null), 3000);
+            setSelectedUserForPerms(null);
+        },
+        onError: (err: any) => {
+            setPermissionMessage(getErrorMessage(err, 'Failed to reset user permissions'));
+        }
+    });
 
     // Sort: current user first, then admins, then agents
     const sorted = [...users].sort((a, b) => {
@@ -114,20 +217,32 @@ export default function TeamPage() {
                     </span>
                 </td>
                 <td className="p-4">
-                    {isAdmin && !isMe ? (
-                        <Button
-                            variant={user.isActive ? 'ghost' : 'outline'}
-                            size="sm"
-                            onClick={() => updateStatusMutation.mutate({ id: user.id, isActive: !user.isActive })}
-                            className={user.isActive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-green-600 hover:text-green-700 hover:bg-green-50'}
-                        >
-                            {user.isActive ? 'Disable' : 'Enable'}
-                        </Button>
-                    ) : (
-                        <span className={`text-xs font-medium ${user.isActive ? 'text-green-600' : 'text-slate-400'}`}>
-                            {user.isActive ? 'Active' : 'Disabled'}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {isAdmin && user.role.name !== 'admin' && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedUserForPerms({ id: user.id, name: user.name })}
+                                className="text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                            >
+                                🔑 Permissions
+                            </Button>
+                        )}
+                        {isAdmin && !isMe ? (
+                            <Button
+                                variant={user.isActive ? 'ghost' : 'outline'}
+                                size="sm"
+                                onClick={() => updateStatusMutation.mutate({ id: user.id, isActive: !user.isActive })}
+                                className={user.isActive ? 'text-red-500 hover:text-red-700 hover:bg-red-50 text-xs' : 'text-green-600 hover:text-green-700 hover:bg-green-50 text-xs'}
+                            >
+                                {user.isActive ? 'Disable' : 'Enable'}
+                            </Button>
+                        ) : (
+                            <span className={`text-xs font-medium ${user.isActive ? 'text-green-600' : 'text-slate-400'}`}>
+                                {user.isActive ? 'Active' : 'Disabled'}
+                            </span>
+                        )}
+                    </div>
                 </td>
             </tr>
         );
@@ -145,10 +260,21 @@ export default function TeamPage() {
         <AuthenticatedLayout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Team</h1>
-                    <p className="text-slate-500 mt-1">Workspace members and their availability.</p>
+                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Team & Permissions</h1>
+                    <p className="text-slate-500 mt-1">Manage workspace agents, roles, availability, and fine-grained access rules.</p>
                 </div>
+                {isAdmin && (
+                    <Button variant="outline" onClick={() => setIsDefaultModalOpen(true)} className="flex items-center gap-2">
+                        ⚙️ Default Agent Permissions
+                    </Button>
+                )}
             </div>
+
+            {permissionMessage && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm font-medium">
+                    {permissionMessage}
+                </div>
+            )}
 
             <div className={`grid grid-cols-1 gap-6 ${isAdmin ? 'lg:grid-cols-3' : ''}`}>
                 {/* Members Table */}
@@ -230,6 +356,121 @@ export default function TeamPage() {
                     </div>
                 )}
             </div>
+
+            {/* Modal: Workspace Default Agent Permissions */}
+            {isDefaultModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
+                        <h2 className="text-xl font-bold text-slate-900 mb-1">Workspace Default Agent Permissions</h2>
+                        <p className="text-xs text-slate-500 mb-4">Select default permissions automatically assigned to agents in this workspace.</p>
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                const formData = new FormData(e.currentTarget);
+                                const selected = formData.getAll('permissions') as string[];
+                                saveDefaultsMutation.mutate(selected);
+                            }}
+                        >
+                            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1 mb-6 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                                {allPermissions.map((perm) => {
+                                    const isChecked = workspaceDefaults.some((d) => d.key === perm.key);
+                                    return (
+                                        <label key={perm.id} className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                name="permissions"
+                                                value={perm.key}
+                                                defaultChecked={isChecked}
+                                                className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-800 font-mono">{perm.key}</p>
+                                                {perm.description && <p className="text-xs text-slate-500">{perm.description}</p>}
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                                <Button variant="outline" type="button" onClick={() => setIsDefaultModalOpen(false)}>Cancel</Button>
+                                <Button type="submit" disabled={saveDefaultsMutation.isPending}>
+                                    {saveDefaultsMutation.isPending ? 'Saving...' : 'Save Workspace Defaults'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Individual User Custom Permissions */}
+            {selectedUserForPerms && userPermDetails && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h2 className="text-xl font-bold text-slate-900">Custom Permissions: {selectedUserForPerms.name}</h2>
+                                <p className="text-xs text-slate-500">Configure custom permission overrides for this agent.</p>
+                            </div>
+                            {userPermDetails.hasCustomOverrides && (
+                                <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
+                                    Custom Overrides Active
+                                </span>
+                            )}
+                        </div>
+
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                const formData = new FormData(e.currentTarget);
+                                const selected = formData.getAll('permissions') as string[];
+                                saveUserPermsMutation.mutate({ userId: selectedUserForPerms.id, keys: selected });
+                            }}
+                        >
+                            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1 mb-6 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                                {allPermissions.map((perm) => {
+                                    const isChecked = userPermDetails.effectivePermissions.includes(perm.key);
+                                    return (
+                                        <label key={perm.id} className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-indigo-50/50 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                name="permissions"
+                                                value={perm.key}
+                                                defaultChecked={isChecked}
+                                                className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-800 font-mono">{perm.key}</p>
+                                                {perm.description && <p className="text-xs text-slate-500">{perm.description}</p>}
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex gap-2 justify-between items-center">
+                                {userPermDetails.hasCustomOverrides ? (
+                                    <Button
+                                        variant="outline"
+                                        type="button"
+                                        onClick={() => resetUserPermsMutation.mutate(selectedUserForPerms.id)}
+                                        disabled={resetUserPermsMutation.isPending}
+                                        className="text-xs text-slate-600 hover:bg-slate-100"
+                                    >
+                                        Reset to Workspace Defaults
+                                    </Button>
+                                ) : <div />}
+
+                                <div className="flex gap-2">
+                                    <Button variant="outline" type="button" onClick={() => setSelectedUserForPerms(null)}>Cancel</Button>
+                                    <Button type="submit" disabled={saveUserPermsMutation.isPending}>
+                                        {saveUserPermsMutation.isPending ? 'Saving...' : 'Save Agent Permissions'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

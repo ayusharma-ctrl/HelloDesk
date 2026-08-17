@@ -16,6 +16,8 @@ import { HealthController } from './common/controllers/health.controller.js';
 import { EventsGateway } from './events.gateway.js';
 import { TokenBucketRateLimiterMiddleware } from './common/middleware/rate-limiter.middleware.js';
 
+import { PermissionsModule } from './modules/permissions/permissions.module.js';
+
 @Module({
     imports: [
         PrismaModule,
@@ -31,6 +33,7 @@ import { TokenBucketRateLimiterMiddleware } from './common/middleware/rate-limit
         ThemeModule,
         UploadModule,
         LlmModule,
+        PermissionsModule,
     ],
     controllers: [HealthController],
     providers: [EventsGateway],

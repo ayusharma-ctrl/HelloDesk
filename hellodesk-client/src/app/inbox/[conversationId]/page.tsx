@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useOptimistic } from 'react';
+import { useState, useRef, useEffect, useOptimistic, startTransition } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useConversation, useSendMessage, useUpdateConversationStatus, useReassignConversation, useAiSummary, useAiDraft, useMarkConversationRead, useRateConversation } from '@/features/inbox/api/conversations';
@@ -99,7 +99,9 @@ export default function ConversationDetailPage() {
         if (!textToSend || isResolved) return;
 
         setBody('');
-        addOptimisticMessage(textToSend);
+        startTransition(() => {
+            addOptimisticMessage(textToSend);
+        });
 
         try {
             await sendMutation.mutateAsync({ id, body: textToSend, isEmail: conv?.channel === 'email' });
@@ -291,25 +293,20 @@ export default function ConversationDetailPage() {
                         )}
                     </div>
 
-                    {/* Resolution Rating Card */}
-                    {isResolved && (
+                    {/* Customer Rating View for Support Agents */}
+                    {isResolved && conv.rating && (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                            <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-1.5">
-                                <span>⭐</span> Resolution Rating
+                            <h3 className="font-semibold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
+                                <span>⭐</span> Customer Review
                             </h3>
-
-                            {conv.rating ? (
-                                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900">
-                                    <div className="flex items-center gap-1 text-base font-bold mb-1">
-                                        {'⭐'.repeat(conv.rating)}
-                                        <span className="text-xs font-semibold ml-1 text-amber-800">({conv.rating}/5)</span>
-                                    </div>
-                                    <p className="text-xs font-medium text-amber-900">Feedback: "{conv.ratingFeedback}"</p>
-                                    <p className="text-[10px] text-amber-700 mt-1">Rated on {new Date(conv.ratedAt).toLocaleDateString()}</p>
+                            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900">
+                                <div className="flex items-center gap-1 text-base font-bold mb-1">
+                                    {'⭐'.repeat(conv.rating)}
+                                    <span className="text-xs font-semibold ml-1 text-amber-800">({conv.rating}/5)</span>
                                 </div>
-                            ) : (
-                                <ResolutionRatingForm id={id} />
-                            )}
+                                {conv.ratingFeedback && <p className="text-xs font-medium text-amber-900">Feedback: "{conv.ratingFeedback}"</p>}
+                                {conv.ratedAt && <p className="text-[10px] text-amber-700 mt-1">Submitted by customer on {new Date(conv.ratedAt).toLocaleDateString()}</p>}
+                            </div>
                         </div>
                     )}
 
@@ -359,30 +356,4 @@ export default function ConversationDetailPage() {
     );
 }
 
-const FEEDBACK_OPTIONS = [
-    { label: 'Issue resolved smoothly', rating: 5, emoji: '🟢' },
-    { label: 'Took long time to resolve', rating: 3, emoji: '🟡' },
-    { label: 'Not happy with resolution', rating: 1, emoji: '🔴' }
-];
 
-function ResolutionRatingForm({ id }: { id: string }) {
-    const rateMutation = useRateConversation();
-
-    return (
-        <div className="flex flex-col gap-2">
-            <p className="text-xs text-slate-500 mb-1">Select customer feedback for this resolved issue:</p>
-            {FEEDBACK_OPTIONS.map((opt) => (
-                <button
-                    key={opt.label}
-                    type="button"
-                    disabled={rateMutation.isPending}
-                    onClick={() => rateMutation.mutate({ id, rating: opt.rating, feedbackOption: opt.label })}
-                    className="p-2 border border-slate-200 rounded-lg text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-between transition-colors"
-                >
-                    <span>{opt.emoji} {opt.label}</span>
-                    <span className="text-[10px] text-slate-400 font-normal">({opt.rating}/5)</span>
-                </button>
-            ))}
-        </div>
-    );
-}

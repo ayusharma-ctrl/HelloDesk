@@ -40,4 +40,24 @@ apiClient.interceptors.response.use(
     }
 );
 
+export function getErrorMessage(error: any, fallback = 'An unexpected error occurred'): string {
+    if (!error) return fallback;
+    const res = error.response?.data;
+    if (res) {
+        if (Array.isArray(res.details) && res.details.length > 0) {
+            return res.details.join('\n');
+        }
+        if (res.message) {
+            return res.message;
+        }
+        if (res.error) {
+            return res.error;
+        }
+    }
+    if (error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 export default apiClient;

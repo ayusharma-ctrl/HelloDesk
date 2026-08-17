@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, getErrorMessage } from '@/lib/api-client';
 
 export default function SignupPage() {
   const [loading, setLoading] = useState(false);
@@ -28,7 +28,7 @@ export default function SignupPage() {
       localStorage.setItem('token', response.data.token);
       router.push('/inbox');
     } catch (err: any) {
-      setError(err.response?.data?.error ?? 'Signup failed');
+      setError(getErrorMessage(err, 'Signup failed'));
     } finally {
       setLoading(false);
     }

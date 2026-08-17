@@ -1,13 +1,13 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSION_KEY } from '../decorators/require-permission.decorator.js';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { PermissionsService } from '../../modules/permissions/permissions.service.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
     constructor(
         private reflector: Reflector,
-        private prisma: PrismaService,
+        private permissionsService: PermissionsService,
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -25,14 +25,11 @@ export class PermissionsGuard implements CanActivate {
             throw new UnauthorizedException('Unauthorized');
         }
 
-        const role = await this.prisma.role.findFirst({
-            where: { name: user.roleName },
-            include: { rolePermissions: { include: { permission: true } } },
-        });
+        const effectivePermissions = await this.permissionsService.getEffectivePermissions(user.id, user.workspaceId, user.roleName);
 
-        const hasPermission = role?.rolePermissions.some((rp) => rp.permission.key === requiredPermission);
+        const hasPermission = effectivePermissions.includes(requiredPermission);
         if (!hasPermission) {
-            throw new ForbiddenException('Forbidden');
+            throw new ForbiddenException(`Access denied. Missing required permission '${requiredPermission}'.`);
         }
 
         return true;

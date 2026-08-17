@@ -35,3 +35,30 @@ body {
 .btn-primary:hover {
   background-color: var(--primary-hover) !important;
 }
+
+/* Global Theme Tokens Binding */
+.bg-theme-main {
+  background-color: var(--bg-color);
+}
+
+.bg-theme-card {
+  background-color: var(--card-bg);
+}
+
+.text-theme-primary {
+  color: var(--primary-color);
+}
+
+.text-theme-accent {
+  color: var(--accent-color);
+}
+
+.brand-badge {
+  background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+}
+
+.brand-text-gradient {
+  background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

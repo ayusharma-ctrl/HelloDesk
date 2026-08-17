@@ -1,14 +1,14 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards, Inject } from '@nestjs/common';
 import { WidgetService } from './widget.service.js';
-import { getIoInstance } from '../../events.gateway.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import { RateLimitGuard, RateLimit } from '../../common/guards/rate-limit.guard.js';
 
-@UseGuards(RateLimitGuard)
-@RateLimit('widget', 10, 1)
 @Controller('widget')
 export class WidgetController {
-    constructor(private readonly widgetService: WidgetService) {}
+    constructor(@Inject(WidgetService) private readonly widgetService: WidgetService) {}
 
+    @UseGuards(RateLimitGuard)
+    @RateLimit('widget:start', 10, 1)
     @Post('conversations')
     async startConversation(@Body() body: any) {
         const result = await this.widgetService.startConversation(body);
@@ -27,6 +27,8 @@ export class WidgetController {
         return result;
     }
 
+    @UseGuards(RateLimitGuard)
+    @RateLimit('widget:msg', 30, 1)
     @Post('messages')
     async sendMessage(@Body() body: any) {
         const { message, conversation } = await this.widgetService.sendMessage(body);
@@ -58,6 +60,11 @@ export class WidgetController {
     @Get('kb-suggestions')
     async kbSuggestions(@Query('q') q?: string, @Query('workspaceId') workspaceId?: string) {
         return this.widgetService.kbSuggestions(q ?? '', workspaceId);
+    }
+
+    @Post('messages/read')
+    async markRead(@Body() body: any) {
+        return this.widgetService.markRead(body.conversationId, body.visitorId);
     }
 
     @Get('status')

@@ -26,6 +26,27 @@
 - **Server state**: TanStack Query for fetching, caching, retry with backoff, deduplication, optimistic updates, and Socket.io cache sync
 - **Deployment**: Vercel
 
+### 🐳 Local Docker Compose Setup (1-Command Orchestration)
+
+To spin up the entire HelloDesk platform locally (PostgreSQL 18, Redis 7, NestJS server, and Next.js client):
+
+```bash
+# 1. Start all containers in background
+docker compose up -d --build
+
+# 2. Check logs
+docker compose logs -f
+
+# 3. Stop containers
+docker compose down
+```
+
+Services exposed:
+- **Client App**: `http://localhost:3000`
+- **Server API**: `http://localhost:3001`
+- **PostgreSQL**: `localhost:5432` (`postgres:postgrespassword`)
+- **Redis**: `localhost:6379`
+
 ---
 
 ## Local Development Setup

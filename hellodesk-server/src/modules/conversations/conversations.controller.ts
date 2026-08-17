@@ -5,7 +5,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { sendMessageSchema, sendEmailMessageSchema, updateStatusSchema, reassignSchema } from './conversations.schema.js';
 import { ConversationsService } from './conversations.service.js';
-import { getIoInstance } from '../../events.gateway.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import type { AuthUser } from '../../lib/auth.js';
 
 @Controller('conversations')
@@ -41,10 +41,13 @@ export class ConversationsController {
     @Post(':id/messages')
     async addMessage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
         const input = sendMessageSchema.parse(body);
-        const { message } = await this.conversationsService.addMessage(id, user.workspaceId, input, user.id);
+        const { message, conversation } = await this.conversationsService.addMessage(id, user.workspaceId, input, user.id);
         const io = getIoInstance();
         if (io) {
             io.to(`workspace:${user.workspaceId}`).emit('message:created', { conversationId: id, message });
+            if (conversation?.contact?.visitorId) {
+                io.to(`visitor:${conversation.contact.visitorId}`).emit('message:created', { conversationId: id, message });
+            }
         }
         return { message };
     }
@@ -70,7 +73,10 @@ export class ConversationsController {
         const updated = await this.conversationsService.updateStatus(id, user.workspaceId, input);
         const io = getIoInstance();
         if (io) {
-            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversation: updated });
+            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            if (updated.contact?.visitorId) {
+                io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            }
         }
         return { conversation: updated };
     }
@@ -83,7 +89,7 @@ export class ConversationsController {
         const updated = await this.conversationsService.reassign(id, user.workspaceId, input);
         const io = getIoInstance();
         if (io) {
-            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversation: updated });
+            io.to(`workspace:${user.workspaceId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
         }
         return { conversation: updated };
     }
@@ -91,7 +97,17 @@ export class ConversationsController {
     @UseGuards(JwtAuthGuard)
     @Patch(':id/read')
     async markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-        return this.conversationsService.markRead(id, user.workspaceId);
+        const result = await this.conversationsService.markRead(id, user.workspaceId);
+        const io = getIoInstance();
+        if (io) {
+            // Emit to workspace so agent dashboard updates "seen" status in real time
+            io.to(`workspace:${user.workspaceId}`).emit('message:read', { conversationId: id, readAt: new Date().toISOString() });
+            if (result.visitorId) {
+                // Emit to visitor so widget updates visitor message "✓ Seen" status
+                io.to(`visitor:${result.visitorId}`).emit('message:read', { conversationId: id, readAt: new Date().toISOString() });
+            }
+        }
+        return { ok: true };
     }
 
     @UseGuards(JwtAuthGuard)

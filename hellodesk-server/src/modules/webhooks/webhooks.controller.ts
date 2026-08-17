@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Headers, UseGuards } from '@nestjs/common';
 import { WebhooksService } from './webhooks.service.js';
-import { getIoInstance } from '../../events.gateway.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import { RateLimitGuard, RateLimit } from '../../common/guards/rate-limit.guard.js';
 import type { ResendInboundPayload } from './webhooks.types.js';
 

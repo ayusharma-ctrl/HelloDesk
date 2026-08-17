@@ -1,4 +1,4 @@
-import { SetMetadata, Injectable, CanActivate, ExecutionContext, HttpStatus, HttpException } from '@nestjs/common';
+import { SetMetadata, Injectable, CanActivate, ExecutionContext, HttpStatus, HttpException, Inject } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { redis } from '../../lib/redis.js';
 import { logger } from '../../lib/logger.js';
@@ -17,9 +17,11 @@ export const RateLimit = (key: string, maxTokens: number, refillRate: number) =>
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-    constructor(private reflector: Reflector) {}
+    constructor(@Inject(Reflector) private reflector: Reflector) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
+        if (!this.reflector) return true;
+
         const options = this.reflector.getAllAndOverride<RateLimitOptions>(RATE_LIMIT_KEY, [
             context.getHandler(),
             context.getClass(),

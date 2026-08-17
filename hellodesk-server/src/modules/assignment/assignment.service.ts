@@ -1,6 +1,7 @@
 import { redis } from '../../lib/redis.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 
 const MAX_CHATS_PER_AGENT = 5;
 
@@ -71,11 +72,17 @@ export async function assignConversation(conversationId: string, workspaceId: st
         include: { contact: true, assignee: true }
     });
 
-    const io = (global as any).io;
+    const io = getIoInstance();
     if (io) {
         io.to(`workspace:${workspaceId}`).emit('conversation:updated', { conversationId: updated.id, conversation: updated });
         if (updated.contact?.visitorId) {
+            // Emit updated conversation so widget refreshes (shows assignee name + status)
             io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: updated.id, conversation: updated });
+            // Emit a dedicated 'agent:joined' event for the widget to show system message
+            io.to(`visitor:${updated.contact.visitorId}`).emit('agent:joined', {
+                conversationId: updated.id,
+                agentName: updated.assignee?.name ?? 'An agent',
+            });
         }
     }
 
@@ -97,7 +104,7 @@ export async function enqueueConversation(conversationId: string, workspaceId: s
         include: { contact: true, assignee: true }
     });
 
-    const io = (global as any).io;
+    const io = getIoInstance();
     if (io) {
         io.to(`workspace:${workspaceId}`).emit('conversation:updated', { conversationId: updated.id, conversation: updated });
         if (updated.contact?.visitorId) {

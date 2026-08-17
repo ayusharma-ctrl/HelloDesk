@@ -2,7 +2,7 @@
 // Embed: <div id="hellodesk-widget-root"></div><script src="YOUR_CLIENT_URL/widget-demo/widget.js" data-workspace-id="YOUR_WS_ID"></script>
 
 (function () {
-    const currentScript = document.currentScript as HTMLScriptElement | null;
+    const currentScript = (document.currentScript as HTMLScriptElement | null) || (document.querySelector('script[data-workspace-id]') as HTMLScriptElement | null);
     const workspaceId = currentScript?.getAttribute('data-workspace-id') ?? 'demo-workspace';
     const apiBase = (currentScript?.getAttribute('data-api-base') ?? 'http://localhost:3001').replace(/\/$/, '');
     const appHost = currentScript?.src ? new URL(currentScript.src).origin : 'http://localhost:3000';
@@ -22,6 +22,13 @@
     let typingTimeout: ReturnType<typeof setTimeout> | null = null;
     let widgetVisible = false;
     let currentAssigneeName: string | null = null;
+    let activeTheme = {
+        primaryColor: '#2563eb',
+        primaryHover: '#1d4ed8',
+        accentColor: '#4f46e5',
+        bgColor: '#f8fafc',
+        cardBg: '#ffffff',
+    };
 
     // ─── Load Socket.IO ────────────────────────────────────────────────
     function loadSocketIO(): Promise<void> {
@@ -35,7 +42,7 @@
     }
 
     // ─── Render message bubble ─────────────────────────────────────────
-    function renderMessage(msg: { body: string; senderType: string; readAt?: string | null; createdAt?: string }): HTMLElement {
+    function renderMessage(msg: { body: string; senderType: string; readAt?: string | null; createdAt?: string; attachments?: any; mediaType?: string }): HTMLElement {
         const isAgent = msg.senderType === 'agent';
         const wrapper = document.createElement('div');
         wrapper.style.cssText = `display:flex;flex-direction:column;align-self:${isAgent ? 'flex-start' : 'flex-end'};max-width:85%;`;
@@ -43,9 +50,42 @@
         const bubble = document.createElement('div');
         bubble.style.cssText = `padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.45;word-break:break-word;${isAgent
             ? 'background:#e2e8f0;color:#0f172a;border-bottom-left-radius:4px;'
-            : 'background:#2563eb;color:#fff;border-bottom-right-radius:4px;'
+            : `background:${activeTheme.primaryColor};color:#fff;border-bottom-right-radius:4px;`
             }`;
-        bubble.textContent = msg.body;
+
+        let attachments = [];
+        try {
+            attachments = Array.isArray(msg.attachments) ? msg.attachments : (typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : []);
+        } catch (e) { }
+        if (attachments.length > 0) {
+            attachments.forEach((att: any) => {
+                const url = typeof att === 'string' ? att : att.url;
+                if (url) {
+                    if (msg.mediaType === 'image' || url.match(/\.(jpeg|jpg|gif|png|webp)/i)) {
+                        const img = document.createElement('img');
+                        img.src = url;
+                        img.alt = 'Attachment';
+                        img.style.cssText = 'max-width:100%;border-radius:8px;margin-bottom:6px;display:block;';
+                        bubble.appendChild(img);
+                    } else {
+                        const fileLink = document.createElement('a');
+                        fileLink.href = url;
+                        fileLink.target = '_blank';
+                        fileLink.style.cssText = isAgent ? 'color:#2563eb;text-decoration:underline;display:block;margin-bottom:4px;' : 'color:#fff;text-decoration:underline;display:block;margin-bottom:4px;';
+                        fileLink.textContent = `📎 ${att.name || 'View Attachment'}`;
+                        bubble.appendChild(fileLink);
+                    }
+                }
+            });
+            if (msg.body && !msg.body.startsWith('[Attachment:')) {
+                const txt = document.createElement('div');
+                txt.textContent = msg.body;
+                bubble.appendChild(txt);
+            }
+        } else {
+            bubble.textContent = msg.body;
+        }
+
         wrapper.appendChild(bubble);
 
         const timeStr = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -66,8 +106,12 @@
     async function initWidget() {
         await loadSocketIO();
 
-        const root = document.getElementById(rootId);
-        if (!root) return;
+        let root = document.getElementById(rootId);
+        if (!root) {
+            root = document.createElement('div');
+            root.id = rootId;
+            document.body.appendChild(root);
+        }
 
         Object.assign(root.style, {
             position: 'fixed',
@@ -99,7 +143,7 @@
         `;
 
         panel.innerHTML = `
-          <div style="background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div id="hd-header" style="background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
             <div>
               <div style="font-weight:700;font-size:17px;">HelloDesk Support</div>
               <div id="hd-presence" style="font-size:12px;opacity:0.85;margin-top:2px;">Checking availability...</div>
@@ -204,6 +248,16 @@
             chatInputArea.style.display = 'flex';
         });
 
+        function markMessagesAsRead() {
+            if (conversationId && widgetVisible) {
+                fetch(`${apiBase}/api/v1/widget/messages/read`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversationId, visitorId })
+                }).catch(() => {});
+            }
+        }
+
         // ── Toggle open/close ──────────────────────────────────────────
         function openPanel() {
             widgetVisible = true;
@@ -215,6 +269,7 @@
             fab.innerHTML = '✕';
             fab.setAttribute('aria-label', 'Close chat');
             void updateStatus();
+            markMessagesAsRead();
         }
 
         function closePanel() {
@@ -235,18 +290,26 @@
             auth: { type: 'visitor', visitorId, workspaceId }
         });
 
+        // Fetch initial status and theme on mount
+        void updateStatus();
+
         socket.on('connect', () => {
             void updateStatus();
         });
 
         socket.on('message:created', (data: any) => {
+            // Full refresh to get accurate readAt, avoid duplicates, and apply theme correctly
             if (data.message?.senderType === 'agent' && !data.message?.isAiDraft) {
+                void updateStatus();
                 if (widgetVisible) {
-                    void updateStatus();
-                } else {
-                    messagesEl.appendChild(renderMessage(data.message));
-                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    markMessagesAsRead();
                 }
+            }
+        });
+
+        socket.on('message:read', (data: any) => {
+            if (data.conversationId === conversationId || !conversationId) {
+                void updateStatus();
             }
         });
 
@@ -265,6 +328,18 @@
                     conversationId = String(data.conversation.id);
                     localStorage.setItem('hellodesk-conversation-id', conversationId);
                 }
+                void updateStatus();
+            }
+        });
+
+        socket.on('agent:joined', (data: any) => {
+            if (data.conversationId === conversationId) {
+                const pill = document.createElement('div');
+                pill.style.cssText = 'align-self:center;padding:4px 12px;background:#e0f2fe;color:#0369a1;border-radius:99px;font-size:11px;font-weight:600;margin:6px 0;border:1px solid #bae6fd;';
+                pill.textContent = `✅ ${data.agentName} has joined the conversation`;
+                messagesEl.appendChild(pill);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+                // Also refresh to show correct assignee in header
                 void updateStatus();
             }
         });
@@ -301,21 +376,64 @@
             setTimeout(() => { closePanel(); }, 4000);
         });
 
+        function applyWidgetTheme(themeData: any) {
+            if (!themeData) return;
+            try {
+                if (typeof themeData === 'string') themeData = JSON.parse(themeData);
+            } catch (e) { }
+            activeTheme = { ...activeTheme, ...themeData };
+
+            if (panel) {
+                panel.style.background = activeTheme.cardBg || '#ffffff';
+            }
+
+            const headerEl = panel.querySelector('#hd-header') as HTMLElement;
+            if (headerEl) {
+                headerEl.style.background = `linear-gradient(135deg, ${activeTheme.primaryColor}, ${activeTheme.accentColor})`;
+            }
+            fab.style.background = `linear-gradient(135deg, ${activeTheme.primaryColor}, ${activeTheme.accentColor})`;
+            fab.style.boxShadow = `0 4px 16px ${activeTheme.primaryColor}66`;
+
+            if (messagesEl) {
+                messagesEl.style.background = activeTheme.bgColor || '#f8fafc';
+            }
+
+            if (sendBtn) {
+                sendBtn.style.background = activeTheme.primaryColor;
+                sendBtn.onmouseover = () => { sendBtn.style.background = activeTheme.primaryHover; };
+                sendBtn.onmouseout = () => { sendBtn.style.background = activeTheme.primaryColor; };
+            }
+
+            if (emailSubmitBtn) {
+                emailSubmitBtn.style.background = activeTheme.primaryColor;
+            }
+            if (resetChatBtn) {
+                resetChatBtn.style.background = activeTheme.primaryColor;
+            }
+
+            if (inputEl) {
+                inputEl.onfocus = () => { inputEl.style.borderColor = activeTheme.primaryColor; };
+            }
+        }
+
         // ── Fetch & display status / history ──────────────────────────
         async function updateStatus() {
             let isAgentsOnline = false;
             try {
                 const agentRes = await fetch(`${apiBase}/api/v1/widget/status?workspaceId=${workspaceId}`);
                 if (agentRes.ok) {
-                    const { online } = await agentRes.json();
+                    const { online, theme: wsTheme } = await agentRes.json();
                     isAgentsOnline = Boolean(online);
+                    if (wsTheme) {
+                        applyWidgetTheme(wsTheme);
+                    }
                 }
             } catch {
                 isAgentsOnline = false;
             }
 
             if (!conversationId) {
-                presenceEl.textContent = isAgentsOnline ? '🟢 Agents available' : '⚪ We are away';
+                presenceEl.textContent = isAgentsOnline ? '🟢 Team online' : '⚪ We are away';
                 noAgentsBanner.style.display = isAgentsOnline ? 'none' : 'block';
                 queueBanner.style.display = 'none';
                 return;
@@ -333,14 +451,66 @@
                 data.messages?.forEach((m: any) => messagesEl.appendChild(renderMessage(m)));
 
                 if (data.status === 'resolved') {
-                    const resolvedMsg = document.createElement('div');
-                    resolvedMsg.style.cssText = 'padding:12px;text-align:center;font-size:13px;color:#64748b;font-weight:500;background:#f1f5f9;border-radius:10px;margin:8px 0;';
-                    resolvedMsg.innerHTML = `<div>This conversation has been resolved.</div><button id="hd-new-chat-btn" style="margin-top:6px;background:#2563eb;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Start New Conversation</button>`;
-                    messagesEl.appendChild(resolvedMsg);
                     chatInputArea.style.display = 'none';
                     queueBanner.style.display = 'none';
                     noAgentsBanner.style.display = 'none';
                     presenceEl.textContent = '⚪ Resolved';
+
+                    const resolvedMsg = document.createElement('div');
+                    resolvedMsg.style.cssText = 'padding:14px;text-align:center;font-size:13px;color:#334155;font-weight:500;background:#f1f5f9;border-radius:12px;margin:10px 0;border:1px solid #e2e8f0;';
+
+                    if (data.rating) {
+                        resolvedMsg.innerHTML = `
+                            <div style="font-weight:700;margin-bottom:4px;color:#0f172a;">This conversation has been resolved.</div>
+                            <div style="color:#d97706;font-weight:700;font-size:14px;margin:4px 0;">${'⭐'.repeat(data.rating)} (${data.rating}/5)</div>
+                            ${data.ratingFeedback ? `<div style="font-style:italic;color:#64748b;font-size:12px;margin-top:2px;">"${data.ratingFeedback}"</div>` : ''}
+                            <button id="hd-new-chat-btn" style="margin-top:10px;background:${activeTheme.primaryColor};color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Start New Conversation</button>
+                        `;
+                    } else {
+                        resolvedMsg.innerHTML = `
+                            <div style="font-weight:700;margin-bottom:6px;color:#0f172a;">This conversation has been resolved.</div>
+                            <div style="font-size:12px;color:#64748b;margin-bottom:8px;">How was your support experience?</div>
+                            <div id="hd-star-rating" style="display:flex;justify-content:center;gap:6px;font-size:20px;cursor:pointer;margin-bottom:8px;">
+                                <span data-star="1">⭐</span>
+                                <span data-star="2">⭐</span>
+                                <span data-star="3">⭐</span>
+                                <span data-star="4">⭐</span>
+                                <span data-star="5">⭐</span>
+                            </div>
+                            <input id="hd-rating-feedback" type="text" placeholder="Optional feedback..." style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px;box-sizing:border-box;outline:none;" />
+                            <button id="hd-submit-rating-btn" style="background:${activeTheme.primaryColor};color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;width:100%;">Submit Feedback</button>
+                            <button id="hd-new-chat-btn" style="margin-top:8px;background:transparent;color:#64748b;border:1px solid #cbd5e1;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;width:100%;">Start New Conversation</button>
+                        `;
+                    }
+
+                    messagesEl.appendChild(resolvedMsg);
+
+                    let selectedRating = 5;
+                    const starContainer = resolvedMsg.querySelector('#hd-star-rating');
+                    if (starContainer) {
+                        starContainer.querySelectorAll('span').forEach((starEl, index) => {
+                            starEl.addEventListener('click', () => {
+                                selectedRating = index + 1;
+                                starContainer.querySelectorAll('span').forEach((s, idx) => {
+                                    s.style.opacity = idx <= index ? '1' : '0.3';
+                                });
+                            });
+                        });
+                    }
+
+                    const submitRatingBtn = resolvedMsg.querySelector('#hd-submit-rating-btn');
+                    submitRatingBtn?.addEventListener('click', async () => {
+                        const feedbackInput = resolvedMsg.querySelector('#hd-rating-feedback') as HTMLInputElement | null;
+                        const feedbackOption = feedbackInput?.value.trim() || undefined;
+                        try {
+                            await fetch(`${apiBase}/api/v1/conversations/${conversationId}/rate`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ rating: selectedRating, feedbackOption })
+                            });
+                        } catch { /* ignore */ }
+                        void updateStatus();
+                    });
 
                     const newChatBtn = resolvedMsg.querySelector('#hd-new-chat-btn');
                     newChatBtn?.addEventListener('click', () => {

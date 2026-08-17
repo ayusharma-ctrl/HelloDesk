@@ -66,16 +66,33 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         });
 
         newSocket.on('message:created', (data: { conversationId: string; message: any }) => {
+            // Invalidate both paginated (infinite) and direct conversation queries
+            queryClient.invalidateQueries({ queryKey: ['conversations-infinite'] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
         });
 
-        newSocket.on('conversation:updated', (data: { conversationId: string; conversation: any }) => {
+        newSocket.on('conversation:created', (data: { conversation: any }) => {
+            // New conversation from widget — refresh inbox list immediately
+            queryClient.invalidateQueries({ queryKey: ['conversations-infinite'] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
+        });
+
+        newSocket.on('conversation:updated', (data: { conversationId?: string; conversation: any }) => {
+            const cid = data.conversationId ?? data.conversation?.id;
+            queryClient.invalidateQueries({ queryKey: ['conversations-infinite'] });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            if (cid) {
+                queryClient.invalidateQueries({ queryKey: ['conversation', cid] });
+            }
             if (me?.workspace?.id) {
                 queryClient.invalidateQueries({ queryKey: ['presence', me.workspace.id] });
             }
+        });
+
+        newSocket.on('message:read', (data: { conversationId: string; readAt: string }) => {
+            // Agent sees visitor read receipt — refresh conversation messages so "seen" shows
+            queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
         });
 
         newSocket.on('presence:changed', (data: { workspaceId: string; userId: string; status: string }) => {
@@ -89,6 +106,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         newSocket.on('ai:summary-ready', (data: { conversationId: string; summary: string }) => {
             queryClient.invalidateQueries({ queryKey: ['ai-summary', data.conversationId] });
             queryClient.invalidateQueries({ queryKey: ['conversation', data.conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversations-infinite'] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
         });
 

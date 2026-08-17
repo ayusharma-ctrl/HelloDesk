@@ -1,14 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { WidgetRepository } from './widget.repository.js';
 import { startConversationSchema, sendWidgetMessageSchema } from './widget.schema.js';
 import { listAgentStatuses } from '../../lib/redis.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import * as assignmentService from '../assignment/assignment.service.js';
 import { requestAiSummary, requestAiDraft } from '../../services/ai.worker.js';
 import crypto from 'crypto';
 
 @Injectable()
 export class WidgetService {
-    constructor(private readonly repository: WidgetRepository) {}
+    constructor(@Inject(WidgetRepository) private readonly repository: WidgetRepository) {}
 
     async startConversation(body: any) {
         const input = startConversationSchema.parse(body);
@@ -46,6 +47,12 @@ export class WidgetService {
         requestAiSummary(conversation.id);
         requestAiDraft(conversation.id);
 
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${input.workspaceId}`).emit('conversation:created', { conversation: refreshedConversation });
+            io.to(`workspace:${input.workspaceId}`).emit('message:created', { conversationId: conversation.id, message });
+        }
+
         return {
             conversation: refreshedConversation,
             message,
@@ -80,6 +87,13 @@ export class WidgetService {
         requestAiSummary(input.conversationId);
         requestAiDraft(input.conversationId);
 
+        const io = getIoInstance();
+        if (io && conversation.workspaceId) {
+            io.to(`workspace:${conversation.workspaceId}`).emit('message:created', { conversationId: input.conversationId, message });
+            // Let the widget itself know the message was accepted/synced, just in case multiple tabs are open
+            io.to(`visitor:${input.visitorId}`).emit('message:created', { conversationId: input.conversationId, message });
+        }
+
         return { message, conversation };
     }
 
@@ -88,7 +102,13 @@ export class WidgetService {
         if (!conversation) {
             throw new NotFoundException('Conversation not found');
         }
-        return { conversation, messages: conversation.messages };
+        return {
+            status: conversation.status,
+            assigneeName: (conversation as any).assigneeName ?? null,
+            rating: (conversation as any).rating ?? null,
+            ratingFeedback: (conversation as any).ratingFeedback ?? null,
+            messages: conversation.messages,
+        };
     }
 
     async kbSuggestions(q: string, workspaceId?: string) {
@@ -96,10 +116,28 @@ export class WidgetService {
         return { articles };
     }
 
+    async markRead(conversationId: string, visitorId: string) {
+        const conversation = await this.repository.findConversationSimple(conversationId);
+        if (!conversation || conversation.contact?.visitorId !== visitorId) {
+            throw new NotFoundException('Conversation not found');
+        }
+
+        await this.repository.updateMessagesAsRead(conversationId);
+
+        const io = getIoInstance();
+        if (io && conversation.workspaceId) {
+            io.to(`workspace:${conversation.workspaceId}`).emit('message:read', { conversationId, readAt: new Date().toISOString() });
+            io.to(`visitor:${visitorId}`).emit('message:read', { conversationId, readAt: new Date().toISOString() });
+        }
+
+        return { ok: true };
+    }
+
     async getStatus(workspaceId: string) {
-        if (!workspaceId) return { online: false };
+        if (!workspaceId) return { online: false, theme: null };
+        const workspace = await this.repository.findWorkspace(workspaceId);
         const statuses = await listAgentStatuses(workspaceId);
         const online = statuses.some((s: any) => s.status === 'available' || s.status === 'busy');
-        return { online };
+        return { online, theme: workspace?.theme ?? null };
     }
 }

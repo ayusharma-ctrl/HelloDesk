@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class WidgetRepository {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
     async findWorkspace(id: string) {
         return this.prisma.workspace.findUnique({ where: { id } });
@@ -59,13 +59,26 @@ export class WidgetRepository {
             where: { id: conversationId, contact: { visitorId } },
             include: {
                 messages: {
-                    where: { isAiDraft: false },
+                    where: { isAiDraft: false, isInternalNote: false },
                     orderBy: { createdAt: 'asc' },
                 },
                 contact: true,
+                assignee: true,
             },
         });
-        return conversation;
+        if (!conversation) return null;
+        return {
+            ...conversation,
+            status: conversation.status,
+            assigneeName: conversation.assignee?.name ?? null,
+        };
+    }
+
+    async updateMessagesAsRead(conversationId: string) {
+        return this.prisma.message.updateMany({
+            where: { conversationId, senderType: 'agent', readAt: null },
+            data: { readAt: new Date() },
+        });
     }
 
     async findKbSuggestions(query: string, workspaceId?: string) {

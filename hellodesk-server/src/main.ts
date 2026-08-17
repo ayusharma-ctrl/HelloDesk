@@ -9,12 +9,16 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { startAiWorkers } from './services/ai.worker.js';
-import { getIoInstance } from './events.gateway.js';
+import { getIoInstance } from './lib/socket-instance.js';
+
+import { AllExceptionsFilter } from './common/filters/http-exception.filter.js';
 
 async function bootstrap() {
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         logger: ['error', 'warn', 'log'],
     });
+
+    app.useGlobalFilters(new AllExceptionsFilter());
 
     app.enableCors({
         origin: true,

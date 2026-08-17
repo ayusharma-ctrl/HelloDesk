@@ -2,7 +2,7 @@ import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { AgentsService } from './agents.service.js';
-import { getIoInstance } from '../../events.gateway.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import type { AuthUser } from '../../lib/auth.js';
 
 @UseGuards(JwtAuthGuard)

@@ -18,6 +18,7 @@ const adminItems = [
     { href: '/settings/theme', label: '🎨 Theme & Branding', permission: 'theme:manage' },
     { href: '/settings/ai', label: '🤖 AI & Models', permission: 'llm:manage' },
     { href: '/kb/admin', label: '✏️ KB Authoring', permission: 'kb:manage' },
+    { href: '/widget-demo', label: '💬 Widget Demo' },
 ];
 
 export function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -57,11 +58,11 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
                     {me?.workspace?.logoUrl ? (
                         <img src={me.workspace.logoUrl} alt="Logo" className="w-8 h-8 rounded-xl object-cover shadow-sm group-hover:scale-105 transition-transform" />
                     ) : (
-                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
+                        <div className="w-8 h-8 rounded-xl brand-badge flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
                             {me?.workspace?.shortName ? me.workspace.shortName.charAt(0).toUpperCase() : 'H'}
                         </div>
                     )}
-                    <span className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+                    <span className="text-xl font-extrabold brand-text-gradient tracking-tight">
                         {me?.workspace?.shortName || 'HelloDesk'}
                     </span>
                 </Link>
@@ -130,7 +131,7 @@ export function AuthenticatedLayout({ children }: { children: React.ReactNode })
     );
 
     return (
-        <div className="flex min-h-screen bg-slate-50">
+        <div className="flex min-h-screen bg-theme-main">
             {/* Desktop Sidebar */}
             <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-slate-200 bg-white flex-col sticky top-0 h-screen">
                 <SidebarContent />

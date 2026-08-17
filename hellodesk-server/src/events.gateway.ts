@@ -13,11 +13,7 @@ import { processQueue } from './modules/assignment/assignment.service.js';
 import { verifyToken } from './lib/auth.js';
 import { prisma } from './lib/prisma.js';
 import { logger } from './lib/logger.js';
-
-let ioInstance: Server | null = null;
-export function getIoInstance(): Server | null {
-    return ioInstance;
-}
+import { setIoInstance } from './lib/socket-instance.js';
 
 @WebSocketGateway({
     cors: {
@@ -30,7 +26,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     server!: Server;
 
     afterInit(server: Server) {
-        ioInstance = server;
+        setIoInstance(server);
 
         server.use(async (socket: Socket, next) => {
             const type = socket.handshake.auth?.type;

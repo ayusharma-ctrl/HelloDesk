@@ -20,31 +20,31 @@
 | ------------------ | -------- | -------------------------------------- | ------------------------------------------------------------ |
 | Any logged-in user | `GET`    | `/api/v1/auth/me`                           | Fetch current user, workspace, role, and permission flags    |
 | Admin              | `GET`    | `/api/v1/dashboard/overview`           | Agent status counts and workspace overview                   |
-| Admin              | `PUT`    | `/api/v1/theme`                        | Update workspace CSS color design tokens                     |
-| Admin              | `PUT`    | `/api/v1/theme/details`                | Update workspace identity (name, short name, logo URL)       |
-| Admin              | `POST`   | `/api/v1/users/invite`                 | Invite agent/admin to workspace                              |
-| Admin              | `GET`    | `/api/v1/users`                        | List workspace users                                         |
-| Admin              | `PATCH`  | `/api/v1/users/:id/role`               | Change user role                                             |
-| Admin              | `PATCH`  | `/api/v1/users/:id/status`             | Activate/deactivate a user                                   |
-| Admin              | `PATCH`  | `/api/v1/conversations/:id/reassign`   | Reassign conversation to agent/admin for escalation          |
-| Admin              | `POST`   | `/api/v1/domains`                      | Register custom domain                                       |
-| Admin              | `GET`    | `/api/v1/domains/:id/verify`           | Check DNS/SSL verification status                            |
-| Admin              | `POST`   | `/api/v1/kb/articles`                  | Create KB article                                            |
-| Admin              | `PUT`    | `/api/v1/kb/articles/:id`              | Update KB article                                            |
-| Admin              | `DELETE` | `/api/v1/kb/articles/:id`              | Delete KB article                                            |
+| Admin (`theme:manage`)  | `PUT`    | `/api/v1/theme`                        | Update workspace CSS color design tokens                     |
+| Admin (`theme:manage`)  | `PUT`    | `/api/v1/theme/details`                | Update workspace identity (name, short name, logo URL)       |
+| Admin (`agent:manage`)  | `POST`   | `/api/v1/users/invite`                 | Invite agent/admin to workspace                              |
+| Admin (`team:view`)     | `GET`    | `/api/v1/users`                        | List workspace users                                         |
+| Admin (`agent:manage`)  | `PATCH`  | `/api/v1/users/:id/role`               | Change user role                                             |
+| Admin (`agent:manage`)  | `PATCH`  | `/api/v1/users/:id/status`             | Activate/deactivate a user                                   |
+| Admin (`conversation:reassign`) | `PATCH` | `/api/v1/conversations/:id/reassign` | Reassign conversation to agent/admin for escalation          |
+| Admin (`domain:manage`) | `POST`   | `/api/v1/domains`                      | Register custom domain                                       |
+| Admin (`domain:manage`) | `GET`    | `/api/v1/domains/:id/verify`           | Check DNS/SSL verification status                            |
+| Admin (`kb:manage`)     | `POST`   | `/api/v1/kb/articles`                  | Create KB article                                            |
+| Admin (`kb:manage`)     | `PUT`    | `/api/v1/kb/articles/:id`              | Update KB article                                            |
+| Admin (`kb:manage`)     | `DELETE` | `/api/v1/kb/articles/:id`              | Delete KB article                                            |
 | Agent/Admin        | `GET`    | `/api/v1/conversations`                | List conversations with pagination (`page`, `limit`)         |
 | Agent/Admin        | `GET`    | `/api/v1/conversations/:id`            | Get conversation detail and messages                         |
-| Agent/Admin        | `POST`   | `/api/v1/conversations/:id/messages`   | Reply to chat/email (supports text & media attachments)      |
+| Agent/Admin (`conversation:reply`) | `POST` | `/api/v1/conversations/:id/messages` | Reply to chat/email (supports text & media attachments) |
 | Agent/Admin        | `POST`   | `/api/v1/upload`                       | Upload media attachment (photos, videos, documents up to 50MB)|
-| Agent/Admin        | `PATCH`  | `/api/v1/conversations/:id/status`     | Snooze or resolve conversation                               |
+| Agent/Admin (`conversation:status:update`) | `PATCH` | `/api/v1/conversations/:id/status` | Snooze or resolve conversation |
 | Agent/Admin        | `PATCH`  | `/api/v1/agents/me/status`             | Set own status to available/away                             |
-| Admin              | `GET`    | `/api/v1/llm/models`                   | List configured LLM models (max 5) & free-tier token usage   |
-| Admin              | `POST`   | `/api/v1/llm/verify font-mono`          | Test LLM API key credentials live via LangChain              |
-| Admin              | `POST`   | `/api/v1/llm/models`                   | Save verified LLM model configuration                        |
-| Admin              | `PATCH`  | `/api/v1/llm/models/:id/default`       | Set default LLM model                                        |
-| Admin              | `DELETE` | `/api/v1/llm/models/:id font-mono`     | Remove custom LLM model                                      |
-| Admin              | `PATCH`  | `/api/v1/llm/settings`                 | Update workspace master AI toggle (`aiEnabled`)              |
-| Admin              | `GET`    | `/api/v1/llm/logs`                     | Fetch real-time LLM request observability logs               |
+| Admin (`llm:manage`)    | `GET`    | `/api/v1/llm/models`                   | List configured LLM models (max 5) & free-tier token usage   |
+| Admin (`llm:manage`)    | `POST`   | `/api/v1/llm/verify`                   | Test LLM API key credentials live via LangChain              |
+| Admin (`llm:manage`)    | `POST`   | `/api/v1/llm/models`                   | Save verified LLM model configuration                        |
+| Admin (`llm:manage`)    | `PATCH`  | `/api/v1/llm/models/:id/default`       | Set default LLM model                                        |
+| Admin (`llm:manage`)    | `DELETE` | `/api/v1/llm/models/:id`               | Remove custom LLM model                                      |
+| Admin (`llm:manage`)    | `PATCH`  | `/api/v1/llm/settings`                 | Update workspace master AI toggle (`aiEnabled`)              |
+| Admin (`llm:manage`)    | `GET`    | `/api/v1/llm/logs`                     | Fetch real-time LLM request observability logs               |
 | Agent/Admin        | `GET`    | `/api/v1/conversations/:id/ai-summary` | Fetch latest AI-generated summary                            |
 | Agent/Admin        | `GET`    | `/api/v1/conversations/:id/ai-draft`   | Fetch latest AI-generated reply draft                        |
 

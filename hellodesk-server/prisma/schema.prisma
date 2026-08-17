@@ -1,7 +1,8 @@
 // Prisma schema for HelloDesk Phase 1
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -46,7 +47,8 @@ model Workspace {
   categories    ArticleCategory[]
   customDomain  CustomDomain?
   llmModels     LlmModel[]
-  llmLogs       LlmRequestLog[]
+  defaultPermissions WorkspaceDefaultPermission[]
+  llmLogs            LlmRequestLog[]
 
   @@map("workspaces")
 }
@@ -68,7 +70,9 @@ model Permission {
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
 
-  rolePermissions RolePermission[]
+  rolePermissions    RolePermission[]
+  workspaceDefaults WorkspaceDefaultPermission[]
+  userPermissions   UserPermission[]
 
   @@map("permissions")
 }
@@ -84,6 +88,30 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+model WorkspaceDefaultPermission {
+  workspaceId  String   @map("workspace_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, permissionId])
+  @@map("workspace_default_permissions")
+}
+
+model UserPermission {
+  userId       String   @map("user_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@map("user_permissions")
+}
+
 model User {
   id           String   @id @default(uuid())
   workspaceId  String   @map("workspace_id")
@@ -95,9 +123,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  workspace             Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  role                  Role           @relation(fields: [roleId], references: [id])
-  assignedConversations Conversation[] @relation("AssignedAgent")
+  workspace             Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role                  Role             @relation(fields: [roleId], references: [id])
+  userPermissions       UserPermission[]
+  assignedConversations Conversation[]   @relation("AssignedAgent")
   messages              Message[]
 
   @@index([workspaceId])
@@ -177,6 +206,7 @@ model Message {
   mediaType      String?           @map("media_type")
   emailMessageId String?           @map("email_message_id")
   emailInReplyTo String?           @map("email_in_reply_to")
+  isInternalNote Boolean           @default(false) @map("is_internal_note")
   isAiDraft      Boolean           @default(false) @map("is_ai_draft")
   readAt         DateTime?         @map("read_at")
   createdAt      DateTime          @default(now()) @map("created_at")

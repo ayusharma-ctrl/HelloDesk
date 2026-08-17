@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { ConversationsRepository } from './conversations.repository.js';
 import { logger } from '../../lib/logger.js';
 import { withRetry } from '../../lib/retry.js';
+import { getIoInstance } from '../../lib/socket-instance.js';
 import type { AuthUser } from '../../lib/auth.js';
 import type { ConversationListQuery } from './conversations.types.js';
 
@@ -81,7 +82,7 @@ export class ConversationsService {
         const message = await this.repository.createMessage({
             conversationId: id,
             senderType: 'agent',
-            senderId: userId,
+            senderUserId: userId,
             body: bodyText,
             isInternalNote: input.isInternalNote ?? false,
             mediaType: input.mediaType ?? undefined,
@@ -94,6 +95,14 @@ export class ConversationsService {
             const { requestAiSummary, requestAiDraft } = await import('../../services/ai.worker.js');
             requestAiSummary(id);
             requestAiDraft(id);
+        }
+
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('message:created', { conversationId: id, message });
+            if (!input.isInternalNote && conversation.contact?.visitorId) {
+                io.to(`visitor:${conversation.contact.visitorId}`).emit('message:created', { conversationId: id, message });
+            }
         }
 
         return { message, conversation };
@@ -116,7 +125,7 @@ export class ConversationsService {
         const message = await this.repository.createMessage({
             conversationId: id,
             senderType: 'agent',
-            senderId: userId,
+            senderUserId: userId,
             body: bodyText,
             mediaType: input.mediaType ?? undefined,
             attachments: input.attachments ?? undefined,
@@ -159,6 +168,11 @@ export class ConversationsService {
         requestAiSummary(id);
         requestAiDraft(id);
 
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('message:created', { conversationId: id, message });
+        }
+
         return { message, emailSent };
     }
 
@@ -175,6 +189,14 @@ export class ConversationsService {
             await assignmentService.assignConversation(id, workspaceId);
         }
 
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            if (updated.contact?.visitorId) {
+                io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            }
+        }
+
         return updated;
     }
 
@@ -184,7 +206,17 @@ export class ConversationsService {
             throw new NotFoundException('Conversation not found');
         }
 
-        return this.repository.updateConversationAssignee(id, input.assigneeId);
+        const updated = await this.repository.updateConversationAssignee(id, input.assigneeId);
+        
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            if (updated.contact?.visitorId) {
+                io.to(`visitor:${updated.contact.visitorId}`).emit('conversation:updated', { conversationId: id, conversation: updated });
+            }
+        }
+        
+        return updated;
     }
 
     async markRead(id: string, workspaceId: string) {
@@ -194,7 +226,16 @@ export class ConversationsService {
         }
 
         await this.repository.updateMessagesAsRead(id);
-        return { ok: true };
+
+        const io = getIoInstance();
+        if (io) {
+            io.to(`workspace:${workspaceId}`).emit('message:read', { conversationId: id, readAt: new Date().toISOString() });
+            if (conversation.contact?.visitorId) {
+                io.to(`visitor:${conversation.contact.visitorId}`).emit('message:read', { conversationId: id, readAt: new Date().toISOString() });
+            }
+        }
+
+        return { ok: true, visitorId: conversation.contact?.visitorId ?? null };
     }
 
     async getAiSummary(id: string, workspaceId: string) {

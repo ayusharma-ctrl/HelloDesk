@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 import AdminGuard from '@/components/layout/AdminGuard';
 import { useCurrentUser } from '@/features/auth/api/me';
@@ -65,6 +65,22 @@ export default function ThemeSettingsPage() {
     const [shortName, setShortName] = useState(user?.workspace?.shortName || '');
     const [logoUrl, setLogoUrl] = useState(user?.workspace?.logoUrl || '');
     const [isSavingDetails, setIsSavingDetails] = useState(false);
+
+    useEffect(() => {
+        setPrimaryColor(theme.primaryColor);
+        setPrimaryHover(theme.primaryHover);
+        setAccentColor(theme.accentColor);
+        setBgColor(theme.bgColor);
+        setCardBg(theme.cardBg);
+    }, [theme]);
+
+    useEffect(() => {
+        if (user?.workspace) {
+            setWorkspaceName(user.workspace.name || '');
+            setShortName(user.workspace.shortName || '');
+            setLogoUrl(user.workspace.logoUrl || '');
+        }
+    }, [user?.workspace]);
 
     const applyPreset = (preset: typeof PRESET_THEMES[0]) => {
         setPrimaryColor(preset.primaryColor);

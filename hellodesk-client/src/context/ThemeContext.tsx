@@ -36,7 +36,17 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
     const { data: user } = useCurrentUser();
-    const [theme, setTheme] = useState<ThemeConfig>(defaultTheme);
+    const [theme, setTheme] = useState<ThemeConfig>(() => {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('hellodesk_saved_theme');
+            if (cached) {
+                try {
+                    return { ...defaultTheme, ...JSON.parse(cached) };
+                } catch (e) {}
+            }
+        }
+        return defaultTheme;
+    });
     const [isUpdating, setIsUpdating] = useState(false);
 
     useEffect(() => {
@@ -44,8 +54,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             const merged = { ...defaultTheme, ...user.workspace.theme };
             setTheme(merged);
             applyCssVariables(merged);
-        } else {
-            applyCssVariables(defaultTheme);
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('hellodesk_saved_theme', JSON.stringify(merged));
+            }
+        } else if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('hellodesk_saved_theme');
+            if (cached) {
+                try {
+                    applyCssVariables({ ...defaultTheme, ...JSON.parse(cached) });
+                } catch (e) {
+                    applyCssVariables(defaultTheme);
+                }
+            } else {
+                applyCssVariables(defaultTheme);
+            }
         }
     }, [user?.workspace?.theme]);
 

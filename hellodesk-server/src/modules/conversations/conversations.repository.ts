@@ -44,7 +44,7 @@ export class ConversationsRepository {
         });
     }
 
-    async createMessage(data: { conversationId: string; senderType: string; senderId?: string; body: string; isInternalNote?: boolean; mediaType?: string; attachments?: any }) {
+    async createMessage(data: { conversationId: string; senderType: string; senderUserId?: string; body: string; isInternalNote?: boolean; mediaType?: string; attachments?: any }) {
         return this.prisma.message.create({
             data: {
                 ...data,
@@ -77,7 +77,10 @@ export class ConversationsRepository {
     }
 
     async updateMessagesAsRead(conversationId: string) {
-        return { count: 0 };
+        return this.prisma.message.updateMany({
+            where: { conversationId, senderType: 'contact', readAt: null },
+            data: { readAt: new Date() },
+        });
     }
 
     async findAiSummary(conversationId: string) {

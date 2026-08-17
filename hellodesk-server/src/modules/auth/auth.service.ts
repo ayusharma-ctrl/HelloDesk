@@ -5,13 +5,17 @@ import { hashPassword, signToken, verifyPassword } from '../../lib/auth.js';
 import { logger } from '../../lib/logger.js';
 import type { AuthResponse, AuthUserDto } from './auth.types.js';
 
+import { PermissionsService } from '../permissions/permissions.service.js';
+
 @Injectable()
 export class AuthService {
-    constructor(private readonly authRepository: AuthRepository) {}
+    constructor(
+        private readonly authRepository: AuthRepository,
+        private readonly permissionsService: PermissionsService,
+    ) {}
 
-    async getPermissionFlags(roleName: string): Promise<string[]> {
-        const role = await this.authRepository.findRoleByName(roleName);
-        return role?.rolePermissions.map((rp) => rp.permission.key) ?? [];
+    async getPermissionFlags(userId: string, workspaceId: string, roleName: string): Promise<string[]> {
+        return this.permissionsService.getEffectivePermissions(userId, workspaceId, roleName);
     }
 
     async signup(body: any): Promise<AuthResponse> {
@@ -27,6 +31,12 @@ export class AuthService {
         const isNewWorkspace = !workspace;
         if (isNewWorkspace) {
             workspace = await this.authRepository.createWorkspace(workspaceName);
+            await this.permissionsService.updateWorkspaceDefaults(workspace.id, [
+                'conversation:reply',
+                'conversation:status:update',
+                'dashboard:view',
+                'team:view',
+            ]);
         }
 
         if (!workspace) throw new InternalServerErrorException('Workspace could not be created');
@@ -48,7 +58,7 @@ export class AuthService {
             passwordHash,
         });
 
-        const permissions = await this.getPermissionFlags(user.role.name);
+        const permissions = await this.getPermissionFlags(user.id, workspace.id, user.role.name);
         const token = signToken({ id: user.id, email: user.email, workspaceId: workspace.id, roleName: user.role.name });
         logger.info({ workspaceId: workspace.id, userId: user.id }, 'signup succeeded');
 
@@ -72,16 +82,24 @@ export class AuthService {
         const input = loginSchema.parse(body);
         const user = await this.authRepository.findUserByEmail(input.email);
 
-        if (!user || !user.isActive || !user.workspace.isActive) {
-            throw new UnauthorizedException('Invalid credentials');
+        if (!user) {
+            throw new UnauthorizedException('No account found with this email address.');
+        }
+
+        if (!user.isActive) {
+            throw new UnauthorizedException('Your user account has been deactivated. Please contact your administrator.');
+        }
+
+        if (!user.workspace.isActive) {
+            throw new UnauthorizedException('Your workspace account is currently suspended. Please contact support.');
         }
 
         const valid = await verifyPassword(input.password, user.passwordHash);
         if (!valid) {
-            throw new UnauthorizedException('Invalid credentials');
+            throw new UnauthorizedException('Incorrect password. Please double check and try again.');
         }
 
-        const permissions = await this.getPermissionFlags(user.role.name);
+        const permissions = await this.getPermissionFlags(user.id, user.workspaceId, user.role.name);
         const token = signToken({ id: user.id, email: user.email, workspaceId: user.workspaceId, roleName: user.role.name });
 
         return {
@@ -108,7 +126,7 @@ export class AuthService {
             throw new NotFoundException('User not found');
         }
 
-        const permissions = await this.getPermissionFlags(user.role.name);
+        const permissions = await this.getPermissionFlags(user.id, user.workspace.id, user.role.name);
 
         return {
             id: user.id,
