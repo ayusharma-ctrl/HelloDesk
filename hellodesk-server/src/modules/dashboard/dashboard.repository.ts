@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class DashboardRepository {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
     async getConversationCounts(workspaceId: string) {
         return Promise.all([

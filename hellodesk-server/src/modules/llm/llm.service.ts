@@ -1,11 +1,11 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { LlmRepository } from './llm.repository.js';
 import { testLlmCredentials } from '../../services/langchain.service.js';
 import { verifyModelSchema, addModelSchema, updateAiSettingsSchema } from './llm.dto.js';
 
 @Injectable()
 export class LlmService {
-    constructor(private readonly repository: LlmRepository) {}
+    constructor(@Inject(LlmRepository) private readonly repository: LlmRepository) {}
 
     async listModels(workspaceId: string) {
         const workspace = await this.repository.getWorkspaceWithTier(workspaceId);

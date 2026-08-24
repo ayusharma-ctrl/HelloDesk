@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Inject } from '@nestjs/common';
 import { LlmService } from './llm.service.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
@@ -10,7 +10,7 @@ import type { AuthUser } from '../../lib/auth.js';
 @RequirePermission('llm:manage')
 @Controller('llm')
 export class LlmController {
-    constructor(private readonly llmService: LlmService) {}
+    constructor(@Inject(LlmService) private readonly llmService: LlmService) {}
 
     @Get('models')
     async listModels(@CurrentUser() user: AuthUser) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Headers, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Headers, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
@@ -8,7 +8,7 @@ import type { AuthUser } from '../../lib/auth.js';
 
 @Controller('kb')
 export class KbController {
-    constructor(private readonly kbService: KbService) {}
+    constructor(@Inject(KbService) private readonly kbService: KbService) {}
 
     @Get('public/search')
     async publicSearch(@Query('q') q?: string, @Query('workspaceId') workspaceId?: string, @Headers('host') hostHeader?: string, @Headers('x-forwarded-host') fwdHost?: string) {

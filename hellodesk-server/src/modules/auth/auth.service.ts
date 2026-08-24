@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, UnauthorizedException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { AuthRepository } from './auth.repository.js';
 import { signupSchema, loginSchema } from './auth.schema.js';
 import { hashPassword, signToken, verifyPassword } from '../../lib/auth.js';
@@ -10,8 +10,8 @@ import { PermissionsService } from '../permissions/permissions.service.js';
 @Injectable()
 export class AuthService {
     constructor(
-        private readonly authRepository: AuthRepository,
-        private readonly permissionsService: PermissionsService,
+        @Inject(AuthRepository) private readonly authRepository: AuthRepository,
+        @Inject(PermissionsService) private readonly permissionsService: PermissionsService,
     ) {}
 
     async getPermissionFlags(userId: string, workspaceId: string, roleName: string): Promise<string[]> {

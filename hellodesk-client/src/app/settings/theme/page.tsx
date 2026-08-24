@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 import AdminGuard from '@/components/layout/AdminGuard';
 import { useCurrentUser } from '@/features/auth/api/me';
@@ -65,6 +65,9 @@ export default function ThemeSettingsPage() {
     const [shortName, setShortName] = useState(user?.workspace?.shortName || '');
     const [logoUrl, setLogoUrl] = useState(user?.workspace?.logoUrl || '');
     const [isSavingDetails, setIsSavingDetails] = useState(false);
+    const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setPrimaryColor(theme.primaryColor);
@@ -90,6 +93,71 @@ export default function ThemeSettingsPage() {
         setCardBg(preset.cardBg);
     };
 
+    const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            alert('Please select a valid image file (PNG, JPG, SVG, WebP).');
+            return;
+        }
+
+        setIsUploadingLogo(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const token = localStorage.getItem('token');
+            const res = await fetch('http://localhost:3001/api/v1/upload', {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                body: formData,
+            });
+
+            if (!res.ok) {
+                throw new Error('Upload failed');
+            }
+
+            const data = await res.json();
+            setLogoUrl(data.url);
+
+            // Automatically persist to workspace
+            const { apiClient } = await import('@/lib/api-client');
+            await apiClient.put('/api/v1/theme/details', {
+                name: workspaceName,
+                shortName,
+                logoUrl: data.url,
+            });
+
+            alert('Logo uploaded and saved successfully to Cloudinary!');
+        } catch (err) {
+            console.error('Logo upload error', err);
+            alert('Failed to upload logo. Please try again.');
+        } finally {
+            setIsUploadingLogo(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleRemoveLogo = async () => {
+        if (!confirm('Revert to the default HelloDesk logo in your chat widget and navigation?')) return;
+        setLogoUrl('');
+        setIsSavingDetails(true);
+        try {
+            const { apiClient } = await import('@/lib/api-client');
+            await apiClient.put('/api/v1/theme/details', {
+                name: workspaceName,
+                shortName,
+                logoUrl: null,
+            });
+            alert('Logo removed. Default HelloDesk branding restored.');
+        } catch (err) {
+            alert('Failed to remove logo.');
+        } finally {
+            setIsSavingDetails(false);
+        }
+    };
+
     const handleSaveDetails = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSavingDetails(true);
@@ -98,7 +166,7 @@ export default function ThemeSettingsPage() {
             await apiClient.put('/api/v1/theme/details', {
                 name: workspaceName,
                 shortName,
-                logoUrl,
+                logoUrl: logoUrl || null,
             });
             alert('Workspace details updated successfully!');
         } catch (err) {
@@ -126,13 +194,80 @@ export default function ThemeSettingsPage() {
                 <div className="max-w-4xl mx-auto space-y-6">
                     <div className="mb-6">
                         <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Theme & Branding</h1>
-                        <p className="text-slate-500 mt-1">Customize workspace identity, logo, short name, and global UI color variables.</p>
+                        <p className="text-slate-500 mt-1">Upload company brand logo, customize short name, and configure live widget theme colors.</p>
                     </div>
 
-                    {/* Workspace General Details Form */}
-                    <div className="card p-6 bg-white rounded-xl border border-slate-200 shadow-sm">
-                        <h2 className="text-lg font-bold text-slate-900 mb-4">Workspace Identity</h2>
-                        <form onSubmit={handleSaveDetails} className="grid gap-4 md:grid-cols-3">
+                    {/* Workspace General Details & Logo Upload Form */}
+                    <div className="card p-6 bg-white rounded-xl border border-slate-200 shadow-sm space-y-6">
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-900">Workspace Brand & Identity</h2>
+                            <p className="text-xs text-slate-500 mt-0.5">Upload a custom logo to display in the live chat widget and portal. Falls back to HelloDesk default if omitted.</p>
+                        </div>
+
+                        {/* Brand Logo Uploader Section */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                            {/* Logo Preview */}
+                            <div className="flex flex-col items-center gap-2">
+                                <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-3xl shadow-md border-2 border-white overflow-hidden relative group">
+                                    {logoUrl ? (
+                                        <img
+                                            src={logoUrl}
+                                            alt="Brand Logo Preview"
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                (e.target as HTMLElement).style.display = 'none';
+                                            }}
+                                        />
+                                    ) : (
+                                        <span>H</span>
+                                    )}
+                                </div>
+                                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                    {logoUrl ? 'Active Logo' : 'Default Logo'}
+                                </span>
+                            </div>
+
+                            {/* Upload Action Buttons */}
+                            <div className="flex-1 space-y-2">
+                                <h3 className="text-sm font-bold text-slate-800">Company Logo (Cloudinary Upload)</h3>
+                                <p className="text-xs text-slate-500">
+                                    Upload a square or transparent PNG, JPG, SVG, or WebP. Automatically hosted and optimized on Cloudinary.
+                                </p>
+
+                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={handleLogoFileUpload}
+                                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                                        className="hidden"
+                                    />
+                                    <Button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={isUploadingLogo}
+                                        className="text-xs px-3.5 py-1.5"
+                                    >
+                                        {isUploadingLogo ? 'Uploading to Cloudinary...' : '📁 Upload New Logo'}
+                                    </Button>
+
+                                    {logoUrl && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={handleRemoveLogo}
+                                            disabled={isSavingDetails || isUploadingLogo}
+                                            className="text-xs px-3.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                                        >
+                                            Reset to Default Logo
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Text Fields Form */}
+                        <form onSubmit={handleSaveDetails} className="grid gap-4 md:grid-cols-3 pt-2">
                             <div>
                                 <label className="text-xs font-semibold text-slate-700 block mb-1">Workspace Name</label>
                                 <Input
@@ -142,7 +277,7 @@ export default function ThemeSettingsPage() {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-700 block mb-1">Short Name (Display)</label>
+                                <label className="text-xs font-semibold text-slate-700 block mb-1">Short Name (Display in Chat)</label>
                                 <Input
                                     value={shortName}
                                     onChange={(e) => setShortName(e.target.value)}
@@ -150,11 +285,11 @@ export default function ThemeSettingsPage() {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-700 block mb-1">Logo URL</label>
+                                <label className="text-xs font-semibold text-slate-700 block mb-1">Logo URL (Direct Link)</label>
                                 <Input
                                     value={logoUrl}
                                     onChange={(e) => setLogoUrl(e.target.value)}
-                                    placeholder="https://..."
+                                    placeholder="https://res.cloudinary.com/..."
                                 />
                             </div>
                             <div className="md:col-span-3 flex justify-end">
@@ -198,7 +333,7 @@ export default function ThemeSettingsPage() {
                                     />
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-slate-700">Background Color</label>
+                                    <label className="text-sm font-medium text-slate-700">Page Background</label>
                                     <input
                                         type="color"
                                         value={bgColor}
@@ -265,14 +400,26 @@ export default function ThemeSettingsPage() {
                             <div className="p-6 rounded-xl border border-slate-200 shadow-sm" style={{ backgroundColor: bgColor }}>
                                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Live Component Preview</h3>
                                 <div className="p-4 rounded-lg border border-slate-200 shadow-sm" style={{ backgroundColor: cardBg }}>
-                                    <h4 className="font-bold text-base mb-1" style={{ color: primaryColor }}>Sample Workspace Card</h4>
-                                    <p className="text-xs text-slate-500 mb-3">This card live previews your active CSS variables.</p>
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                                            {logoUrl ? (
+                                                <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
+                                            ) : (
+                                                'H'
+                                            )}
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-sm" style={{ color: primaryColor }}>{shortName || workspaceName || 'HelloDesk Support'}</h4>
+                                            <span className="text-[10px] text-slate-400">🟢 AI Assistant Ready</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mb-3">This card live previews your active brand identity & CSS tokens.</p>
                                     <button
                                         type="button"
                                         className="px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors"
                                         style={{ backgroundColor: primaryColor }}
                                     >
-                                        Primary Action Button
+                                        Sample Button
                                     </button>
                                 </div>
                             </div>

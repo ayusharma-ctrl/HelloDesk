@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseGuards, Inject } from '@nestjs/common';
 import { WidgetService } from './widget.service.js';
 import { getIoInstance } from '../../lib/socket-instance.js';
 import { RateLimitGuard, RateLimit } from '../../common/guards/rate-limit.guard.js';
@@ -52,6 +52,11 @@ export class WidgetController {
         return { message };
     }
 
+    @Get('conversations/:id')
+    async getConversationHistory(@Param('id') id: string, @Query('visitorId') visitorId?: string) {
+        return this.widgetService.getHistory(id, visitorId ?? '');
+    }
+
     @Get('history')
     async getHistory(@Query('conversationId') conversationId?: string, @Query('visitorId') visitorId?: string) {
         return this.widgetService.getHistory(conversationId ?? '', visitorId ?? '');
@@ -62,9 +67,24 @@ export class WidgetController {
         return this.widgetService.kbSuggestions(q ?? '', workspaceId);
     }
 
+    @Post('read')
+    async markReadDirect(@Body() body: any) {
+        return this.widgetService.markRead(body.conversationId, body.visitorId);
+    }
+
     @Post('messages/read')
     async markRead(@Body() body: any) {
         return this.widgetService.markRead(body.conversationId, body.visitorId);
+    }
+
+    @Post('rate')
+    async rateConversationDirect(@Body() body: any) {
+        return this.widgetService.rateConversation(body.conversationId, body.visitorId, Number(body.rating), body.ratingFeedback || body.feedbackOption);
+    }
+
+    @Post('conversations/:id/rate')
+    async rateConversationWithId(@Param('id') id: string, @Body() body: any) {
+        return this.widgetService.rateConversation(id, body.visitorId, Number(body.rating), body.ratingFeedback || body.feedbackOption);
     }
 
     @Get('status')

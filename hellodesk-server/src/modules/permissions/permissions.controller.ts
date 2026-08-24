@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Body, Param, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Body, Param, UseGuards, ForbiddenException, Inject } from '@nestjs/common';
 import { PermissionsService } from './permissions.service.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
@@ -11,8 +11,8 @@ import type { AuthUser } from '../../lib/auth.js';
 @Controller('permissions')
 export class PermissionsController {
     constructor(
-        private readonly permissionsService: PermissionsService,
-        private readonly prisma: PrismaService,
+        @Inject(PermissionsService) private readonly permissionsService: PermissionsService,
+        @Inject(PrismaService) private readonly prisma: PrismaService,
     ) {}
 
     @Get()

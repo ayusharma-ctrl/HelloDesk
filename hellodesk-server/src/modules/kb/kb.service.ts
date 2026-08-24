@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, Optional } from '@nestjs/common';
 import { KbRepository } from './kb.repository.js';
 import { createCategorySchema, createArticleSchema, updateArticleSchema } from './kb.schema.js';
+import { VectorStoreService } from '../ai/retrieval/vector-store.service.js';
 
 @Injectable()
 export class KbService {
-    constructor(private readonly repository: KbRepository) {}
+    constructor(
+        @Inject(KbRepository) private readonly repository: KbRepository,
+        @Optional() @Inject(VectorStoreService) private readonly vectorStore?: VectorStoreService
+    ) {}
 
     private async resolveWorkspace(workspaceId?: string, host?: string): Promise<{ id: string; name: string } | null> {
         if (workspaceId) {
@@ -23,10 +27,14 @@ export class KbService {
         const query = q.trim();
         const ws = await this.resolveWorkspace(workspaceId, host);
 
+        if (!ws) {
+            return { articles: [], workspace: null };
+        }
+
         const where: any = {
             status: 'published',
+            workspaceId: ws.id,
             workspace: { isActive: true },
-            ...(ws ? { workspaceId: ws.id } : {}),
         };
 
         if (query) {
@@ -44,10 +52,14 @@ export class KbService {
     async publicGetBySlug(slug: string, workspaceId?: string, host?: string) {
         const ws = await this.resolveWorkspace(workspaceId, host);
 
+        if (!ws) {
+            throw new NotFoundException('Article not found');
+        }
+
         const article = await this.repository.findPublicArticleBySlug({
             slug,
             status: 'published',
-            ...(ws ? { workspaceId: ws.id } : {}),
+            workspaceId: ws.id,
         });
 
         if (!article) {
@@ -74,7 +86,7 @@ export class KbService {
     async createArticle(workspaceId: string, body: any) {
         const input = createArticleSchema.parse(body);
         const slug = input.title.toLowerCase().trim().replace(/\s+/g, '-');
-        return this.repository.createArticle({
+        const created = await this.repository.createArticle({
             workspaceId,
             ...(input.categoryId ? { categoryId: input.categoryId } : {}),
             title: input.title,
@@ -82,6 +94,17 @@ export class KbService {
             content: input.content,
             status: input.status ?? 'draft',
         });
+
+        // Trigger automatic pgvector indexing if published
+        if (created.status === 'published' && this.vectorStore) {
+            setImmediate(async () => {
+                try {
+                    await this.vectorStore?.indexArticle(created.id, workspaceId);
+                } catch {}
+            });
+        }
+
+        return created;
     }
 
     async updateArticle(id: string, workspaceId: string, body: any) {
@@ -96,7 +119,18 @@ export class KbService {
             data.slug = input.title.toLowerCase().trim().replace(/\s+/g, '-');
         }
 
-        return this.repository.updateArticle(id, data);
+        const updated = await this.repository.updateArticle(id, data);
+
+        // Re-index pgvector embeddings if published
+        if (updated.status === 'published' && this.vectorStore) {
+            setImmediate(async () => {
+                try {
+                    await this.vectorStore?.indexArticle(updated.id, workspaceId);
+                } catch {}
+            });
+        }
+
+        return updated;
     }
 
     async deleteArticle(id: string, workspaceId: string) {

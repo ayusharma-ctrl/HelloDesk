@@ -1,13 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, Optional } from '@nestjs/common';
 import { WebhooksRepository } from './webhooks.repository.js';
 import type { ResendInboundPayload } from './webhooks.types.js';
 import * as assignmentService from '../assignment/assignment.service.js';
 import { requestAiSummary, requestAiDraft } from '../../services/ai.worker.js';
+import { AgentRuntimeService } from '../ai/agent/agent-runtime.service.js';
 import { logger } from '../../lib/logger.js';
 
 @Injectable()
 export class WebhooksService {
-    constructor(private readonly repository: WebhooksRepository) {}
+    constructor(
+        @Inject(WebhooksRepository) private readonly repository: WebhooksRepository,
+        @Optional() @Inject(AgentRuntimeService) private readonly agentRuntime?: AgentRuntimeService
+    ) {}
 
     async processInboundEmail(workspaceId: string, payload: ResendInboundPayload) {
         const workspace = await this.repository.findWorkspace(workspaceId);
@@ -53,8 +57,25 @@ export class WebhooksService {
             await assignmentService.assignConversation(conversation.id, workspaceId);
         }
 
-        requestAiSummary(conversation.id);
-        requestAiDraft(conversation.id);
+        // Autonomous Email Agent execution when no agent is assigned and workspace has AI enabled
+        if (!conversation.assigneeId && workspace.aiEnabled && this.agentRuntime && body) {
+            setImmediate(async () => {
+                try {
+                    await this.agentRuntime?.runAgent(
+                        workspaceId,
+                        conversation!.id,
+                        body,
+                        'email'
+                    );
+                } catch (err) {
+                    requestAiSummary(conversation!.id);
+                    requestAiDraft(conversation!.id);
+                }
+            });
+        } else {
+            requestAiSummary(conversation.id);
+            requestAiDraft(conversation.id);
+        }
 
         logger.info({ conversationId: conversation.id, isNew, senderEmail }, 'Inbound email processed');
 

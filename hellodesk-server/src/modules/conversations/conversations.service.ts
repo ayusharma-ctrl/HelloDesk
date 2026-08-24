@@ -1,5 +1,6 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConversationsRepository } from './conversations.repository.js';
+import { WorkspaceEmailService } from '../email/email.service.js';
 import { logger } from '../../lib/logger.js';
 import { withRetry } from '../../lib/retry.js';
 import { getIoInstance } from '../../lib/socket-instance.js';
@@ -8,7 +9,10 @@ import type { ConversationListQuery } from './conversations.types.js';
 
 @Injectable()
 export class ConversationsService {
-    constructor(private readonly repository: ConversationsRepository) {}
+    constructor(
+        @Inject(ConversationsRepository) private readonly repository: ConversationsRepository,
+        @Inject(WorkspaceEmailService) private readonly emailService: WorkspaceEmailService,
+    ) {}
 
     async listConversations(workspaceId: string, query: ConversationListQuery & { page?: number; limit?: number }, user: AuthUser) {
         const isAdmin = user.roleName === 'admin';
@@ -133,35 +137,13 @@ export class ConversationsService {
 
         await this.repository.updateConversationDate(id);
 
-        const apiKey = process.env.RESEND_API_KEY;
-        const from = process.env.RESEND_FROM_EMAIL;
-        let emailSent = false;
-
-        if (apiKey && from) {
-            try {
-                const response = await withRetry(() =>
-                    fetch('https://api.resend.com/emails', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            from,
-                            to: [conversation.contact.email],
-                            subject: `Re: Conversation #${id.slice(0, 8)}`,
-                            text: input.body,
-                        }),
-                    }),
-                );
-
-                if (response.ok) {
-                    emailSent = true;
-                    logger.info({ conversationId: id, to: conversation.contact.email }, 'Reply email sent');
-                } else {
-                    const text = await response.text();
-                    logger.warn({ conversationId: id, status: response.status, text }, 'Resend email send failed');
-                }
-            } catch (err) {
-                logger.error({ err, conversationId: id }, 'Failed sending reply email via Resend');
-            }
+        let emailResult = { sent: false };
+        if (conversation.contact?.email) {
+            emailResult = await this.emailService.sendWorkspaceEmail(workspaceId, {
+                to: conversation.contact.email,
+                subject: `Re: Conversation #${id.slice(0, 8)}`,
+                text: input.body,
+            });
         }
 
         const { requestAiSummary, requestAiDraft } = await import('../../services/ai.worker.js');
@@ -173,7 +155,7 @@ export class ConversationsService {
             io.to(`workspace:${workspaceId}`).emit('message:created', { conversationId: id, message });
         }
 
-        return { message, emailSent };
+        return { message, emailSent: emailResult.sent };
     }
 
     async updateStatus(id: string, workspaceId: string, input: any) {

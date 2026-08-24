@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { DashboardRepository } from './dashboard.repository.js';
 import { listAgentStatuses } from '../../lib/redis.js';
 
 @Injectable()
 export class DashboardService {
-    constructor(private readonly repository: DashboardRepository) {}
+    constructor(@Inject(DashboardRepository) private readonly repository: DashboardRepository) {}
 
     async getOverview(workspaceId: string) {
         const [[open, pending, snoozed, resolved], allUsers, presenceMembers] = await Promise.all([

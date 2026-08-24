@@ -28,54 +28,126 @@ export default function SignupPage() {
       localStorage.setItem('token', response.data.token);
       router.push('/inbox');
     } catch (err: any) {
-      setError(getErrorMessage(err, 'Signup failed'));
+      setError(getErrorMessage(err, 'Signup failed. Please try a different email or workspace name.'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
-            H
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">HelloDesk</h2>
-            <p className="text-xs text-slate-500">Customer Support Platform</p>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden">
+      {/* Top Brand Navbar */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/85 border-b border-slate-800/80 transition-all">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-base sm:text-lg shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
+              H
+            </div>
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-lg sm:text-xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
+                HelloDesk
+              </span>
+              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/25">
+                AI
+              </span>
+            </div>
+          </Link>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="text-xs font-semibold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-900 transition-colors"
+            >
+              ← Back to Home
+            </Link>
+            <Link
+              href="/login"
+              className="text-xs font-semibold text-slate-200 hover:text-white px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all"
+            >
+              Sign In
+            </Link>
           </div>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mb-1">Create a Workspace</h1>
-        <p className="text-slate-500 text-sm mb-6">Get started with your team today.</p>
+      </header>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Your Name</label>
-            <Input name="name" placeholder="Jane Doe" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <Input name="email" type="email" placeholder="jane@example.com" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Workspace Name</label>
-            <Input name="workspaceName" placeholder="Acme Inc" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <Input name="password" type="password" placeholder="••••••••" required minLength={6} />
-          </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex items-center justify-center p-4 relative">
+        {/* Ambient Parallax Glowing Orbs */}
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-purple-600/20 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px] pointer-events-none"></div>
 
-          {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+        <div className="w-full max-w-md bg-slate-900/80 border border-slate-800/80 rounded-3xl p-8 shadow-2xl backdrop-blur-2xl relative z-10">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-bold text-white mb-1">Create Workspace</h1>
+            <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Free Plan
+            </span>
+          </div>
+          <p className="text-slate-400 text-xs mb-6">Deploy autonomous AI support for your team in seconds.</p>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Creating workspace...' : 'Sign up'}
-          </Button>
-        </form>
+          <form onSubmit={onSubmit} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Full Name</label>
+              <Input
+                name="name"
+                placeholder="Jane Doe"
+                required
+                className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:border-blue-500 focus:ring-blue-500/20 text-xs py-2.5 rounded-xl"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work Email</label>
+              <Input
+                name="email"
+                type="email"
+                placeholder="jane@company.com"
+                required
+                className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:border-blue-500 focus:ring-blue-500/20 text-xs py-2.5 rounded-xl"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Workspace Name</label>
+              <Input
+                name="workspaceName"
+                placeholder="Acme Corp"
+                required
+                className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:border-blue-500 focus:ring-blue-500/20 text-xs py-2.5 rounded-xl"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+              <Input
+                name="password"
+                type="password"
+                placeholder="••••••••"
+                required
+                minLength={6}
+                className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:border-blue-500 focus:ring-blue-500/20 text-xs py-2.5 rounded-xl"
+              />
+            </div>
 
-        <div className="mt-6 text-center text-sm text-slate-500">
-          Already have an account? <Link href="/login" className="text-blue-600 hover:underline">Log in</Link>
+            {error && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold text-xs py-3 rounded-xl shadow-lg shadow-blue-500/25 transition-all transform hover:-translate-y-0.5"
+              disabled={loading}
+            >
+              {loading ? 'Setting Up Workspace...' : 'Launch Workspace Free →'}
+            </Button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t border-slate-800 text-center text-xs text-slate-400">
+            Already have an account?{' '}
+            <Link href="/login" className="text-blue-400 hover:text-blue-300 font-semibold underline">
+              Sign in
+            </Link>
+          </div>
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useOptimistic, startTransition } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { useConversation, useSendMessage, useUpdateConversationStatus, useReassignConversation, useAiSummary, useAiDraft, useMarkConversationRead, useRateConversation } from '@/features/inbox/api/conversations';
 import { useTeam } from '@/features/team/api/team';
 import { useCurrentUser } from '@/features/auth/api/me';
@@ -14,6 +15,7 @@ import { useSocket } from '@/context/SocketContext';
 export default function ConversationDetailPage() {
     const params = useParams();
     const id = params.conversationId as string;
+    const queryClient = useQueryClient();
 
     const { data: me } = useCurrentUser();
     const isAdmin = me?.role === 'admin';
@@ -54,6 +56,44 @@ export default function ConversationDetailPage() {
             }
         ]
     );
+
+    // Real-time synchronization for read receipts and conversation updates
+    useEffect(() => {
+        if (!socket || !id) return;
+
+        const handleRead = (data: { conversationId: string; readAt: string }) => {
+            if (data.conversationId === id) {
+                queryClient.invalidateQueries({ queryKey: ['conversation', id] });
+            }
+        };
+
+        const handleMessageCreated = (data: { conversationId: string; message: any }) => {
+            if (data.conversationId === id) {
+                queryClient.invalidateQueries({ queryKey: ['conversation', id] });
+                if (data.message?.senderType === 'contact') {
+                    markReadMutation.mutate(id);
+                }
+            }
+        };
+
+        const handleConversationUpdated = (data: { conversationId: string; conversation: any }) => {
+            if (data.conversationId === id) {
+                queryClient.invalidateQueries({ queryKey: ['conversation', id] });
+            }
+        };
+
+        socket.on('message:read', handleRead);
+        socket.on('messages:read', handleRead);
+        socket.on('message:created', handleMessageCreated);
+        socket.on('conversation:updated', handleConversationUpdated);
+
+        return () => {
+            socket.off('message:read', handleRead);
+            socket.off('messages:read', handleRead);
+            socket.off('message:created', handleMessageCreated);
+            socket.off('conversation:updated', handleConversationUpdated);
+        };
+    }, [socket, id, queryClient]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -168,10 +208,38 @@ export default function ConversationDetailPage() {
                     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-50">
                         {optimisticMessages?.map((msg: any) => {
                             const isAgent = msg.senderType === 'agent';
+                            const isBot = msg.senderType === 'bot';
+                            const isStaff = isAgent || isBot;
                             const timeFormatted = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                             return (
-                                <div key={msg.id} className={`max-w-[80%] p-3 rounded-2xl text-sm ${isAgent ? 'bg-blue-600 text-white self-end rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 self-start rounded-tl-sm'} ${msg.isOptimistic ? 'opacity-70' : ''}`}>
-                                    {msg.body && !msg.body.startsWith('[Attachment:') && <p className="whitespace-pre-wrap mb-2">{msg.body}</p>}
+                                <div
+                                    key={msg.id}
+                                    className={`max-w-[80%] p-3.5 rounded-2xl text-sm transition-all ${
+                                        isBot
+                                            ? 'bg-linear-to-br from-indigo-950 via-slate-900 to-indigo-900 text-indigo-50 self-end rounded-tr-sm border border-indigo-500/40 shadow-sm'
+                                            : isAgent
+                                            ? 'bg-blue-600 text-white self-end rounded-tr-sm shadow-xs'
+                                            : 'bg-white border border-slate-200 text-slate-800 self-start rounded-tl-sm shadow-xs'
+                                    } ${msg.isOptimistic ? 'opacity-70' : ''}`}
+                                >
+                                    {/* Distinct Sender Header Tag */}
+                                    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold">
+                                        {isBot ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 text-[10px]">
+                                                🤖 AI Autonomous Specialist
+                                            </span>
+                                        ) : isAgent ? (
+                                            <span className="inline-flex items-center gap-1 text-blue-200 text-[10px]">
+                                                👤 Support Agent
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 text-slate-500 text-[10px]">
+                                                👤 Customer / Visitor
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {msg.body && !msg.body.startsWith('[Attachment:') && <p className="whitespace-pre-wrap mb-2 leading-relaxed">{msg.body}</p>}
 
                                     {/* Render Media Attachments */}
                                     {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.map((att: any, idx: number) => (
@@ -181,16 +249,16 @@ export default function ConversationDetailPage() {
                                             ) : msg.mediaType === 'video' || att.url?.match(/\.(mp4|webm|ogg)/i) ? (
                                                 <video src={att.url} controls className="max-w-xs max-h-60 rounded-lg border border-black/10" />
                                             ) : (
-                                                <a href={att.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-2 p-2 rounded-lg text-xs font-semibold underline ${isAgent ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                                <a href={att.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-2 p-2 rounded-lg text-xs font-semibold underline ${isStaff ? 'bg-indigo-800/60 text-white' : 'bg-slate-100 text-slate-700'}`}>
                                                     📎 Download Attachment ({att.originalName || 'File'})
                                                 </a>
                                             )}
                                         </div>
                                     ))}
 
-                                    <div className={`text-[10px] mt-1 flex justify-between items-center gap-3 ${isAgent ? 'text-blue-200' : 'text-slate-400'}`}>
+                                    <div className={`text-[10px] mt-1 flex justify-between items-center gap-3 ${isBot ? 'text-indigo-300' : isAgent ? 'text-blue-200' : 'text-slate-400'}`}>
                                         <span>{msg.isOptimistic ? 'Sending...' : timeFormatted}</span>
-                                        {isAgent && msg.readAt && <span className="font-semibold text-blue-100 italic">seen</span>}
+                                        {isStaff && msg.readAt && <span className="font-semibold italic">✓ seen</span>}
                                     </div>
                                 </div>
                             );
@@ -213,7 +281,7 @@ export default function ConversationDetailPage() {
                             </div>
                         )}
                         <form onSubmit={handleSend} className="flex gap-2 items-center">
-                            <label className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors" title="Attach image or video">
+                            <label className={`p-2 rounded-lg text-slate-500 transition-colors ${isResolved ? 'opacity-40 pointer-events-none cursor-not-allowed' : 'hover:text-slate-700 hover:bg-slate-100 cursor-pointer'}`} title="Attach image or video">
                                 📎
                                 <input
                                     type="file"

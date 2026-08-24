@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, NotFoundException } from '@nestjs/common';
 import { DomainsRepository } from './domains.repository.js';
 import { registerDomainSchema } from './domains.schema.js';
 import { logger } from '../../lib/logger.js';
@@ -6,7 +6,7 @@ import crypto from 'crypto';
 
 @Injectable()
 export class DomainsService {
-    constructor(private readonly repository: DomainsRepository) {}
+    constructor(@Inject(DomainsRepository) private readonly repository: DomainsRepository) {}
 
     private generateVerificationToken(): string {
         return 'verify-' + crypto.randomBytes(32).toString('hex');

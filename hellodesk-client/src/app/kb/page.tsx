@@ -5,10 +5,13 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKbLayout } from '@/components/layout/PublicKbLayout';
 import { apiClient } from '@/lib/api-client';
+import { useCurrentUser } from '@/features/auth/api/me';
 
 function KnowledgeBasePublicContent() {
     const searchParams = useSearchParams();
-    const workspaceId = searchParams.get('workspaceId') || searchParams.get('ws') || undefined;
+    const workspaceIdParam = searchParams.get('workspaceId') || searchParams.get('ws') || undefined;
+    const { data: me } = useCurrentUser();
+    const effectiveWorkspaceId = workspaceIdParam || me?.workspace?.id || undefined;
 
     const [query, setQuery] = useState('');
     const deferredQuery = useDeferredValue(query);
@@ -22,7 +25,7 @@ function KnowledgeBasePublicContent() {
         try {
             const params = new URLSearchParams();
             if (search) params.set('q', search);
-            if (workspaceId) params.set('workspaceId', workspaceId);
+            if (effectiveWorkspaceId) params.set('workspaceId', effectiveWorkspaceId);
 
             const res = await apiClient.get(`/api/v1/kb/public/search?${params.toString()}`);
             setResults(res.data.articles ?? []);
@@ -41,14 +44,14 @@ function KnowledgeBasePublicContent() {
         debounceRef.current = setTimeout(() => {
             void searchArticles(deferredQuery);
         }, 300);
-    }, [deferredQuery, workspaceId]);
+    }, [deferredQuery, effectiveWorkspaceId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setQuery(e.target.value);
     };
 
-    const brandName = workspaceInfo?.name || 'HelloDesk';
-    const activeWsId = workspaceInfo?.id || workspaceId;
+    const brandName = workspaceInfo?.name || me?.workspace?.name || 'HelloDesk';
+    const activeWsId = workspaceInfo?.id || effectiveWorkspaceId;
 
     return (
         <PublicKbLayout workspaceName={brandName} workspaceId={activeWsId}>

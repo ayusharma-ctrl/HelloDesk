@@ -33,7 +33,7 @@ export function startAiWorkers(io: Server) {
             }
         });
 
-        if (!conversation || conversation.messages.length === 0) return;
+        if (!conversation || conversation.status === 'resolved' || conversation.messages.length === 0) return;
 
         // Ignore pure media messages or placeholder media messages in AI processing
         const textMessages = conversation.messages.filter(m => m.body && !m.body.startsWith('[Attachment:'));
@@ -75,7 +75,7 @@ export function startAiWorkers(io: Server) {
             }
         });
 
-        if (!conversation || conversation.messages.length === 0) return;
+        if (!conversation || conversation.status === 'resolved' || conversation.messages.length === 0) return;
 
         const textMessages = conversation.messages.filter(m => m.body && !m.body.startsWith('[Attachment:'));
         if (textMessages.length === 0) return;

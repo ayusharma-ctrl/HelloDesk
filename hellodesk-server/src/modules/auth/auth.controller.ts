@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Inject } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -6,7 +6,7 @@ import type { AuthUser } from '../../lib/auth.js';
 
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly authService: AuthService) {}
+    constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
     @Post('signup')
     async signup(@Body() body: any) {

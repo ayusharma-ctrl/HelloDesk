@@ -1,78 +1,190 @@
-# USER_JOURNEY.md
+# HelloDesk — Complete User Journeys & End-to-End Flow Architecture
 
-## 1. User Signup and Workspace Creation
+This document outlines the end-to-end user journeys, decision graphs, RAG search mechanics, tool calling pipelines, and multi-agent observability across HelloDesk.
 
-1. User opens the app and signs up with name, email, password, and workspace name.
-2. Backend normalizes the workspace name and checks the unique `Workspace.name` value.
-3. If the workspace does not exist, backend creates it and assigns the signup user the `admin` role.
-4. If the workspace already exists, backend creates the user in that workspace with the `agent` role by default.
-5. Backend returns a JWT access token and the user's resolved permission flags.
+---
 
-## 2. Login
+## 1. Master System Flowchart
 
-1. User logs in with email and password.
-2. Backend validates: user exists by email, user is active, workspace is active, and hashed password matches.
-3. Backend returns a JWT access token, user details, workspace details, role, and permission flags.
-4. Frontend uses permission flags to show/hide routes and actions; backend remains the security boundary.
+```mermaid
+flowchart TD
+    Start([Customer Initiates Inquiry]) --> ChannelChoice{Channel Type}
+    
+    %% Channel Branching
+    ChannelChoice -->|Live Chat Widget| ChatFlow[Chat Widget Channel]
+    ChannelChoice -->|Inbound Email| EmailFlow[Resend Webhook Channel]
+    ChannelChoice -->|Real-Time Voice| VoiceFlow[Socket.io Voice Gateway]
 
-## 3. Admin Manages Team
+    %% Voice Subflow
+    VoiceFlow --> STT[Whisper STT Streaming Adapter]
+    STT --> AudioToText[Transcript Emitted]
+    AudioToText --> AgentEntry[Autonomous AI Core Runtime]
 
-1. Admin invites a teammate by entering name, email, and selecting a role (`admin` or `agent`).
-2. Backend creates a user scoped to the same `workspace_id`, generates a temporary password, and sends an invite email via Resend.
-3. Admin can change user roles later using RBAC-backed role updates.
-4. Admin can deactivate users without deleting their records.
+    %% Chat & Email Entry
+    ChatFlow --> AgentEntry
+    EmailFlow --> AgentEntry
 
-## 4. Agent Goes Online
+    %% Pre-flight Safety
+    AgentEntry --> Safety1{Prompt Injection Check}
+    Safety1 -->|Adversarial Jailbreak| InjectionBlock[Return Safe System Refusal]
+    Safety1 -->|Safe| PIIMask[PII Masker: Redact CC / SSN / API Keys]
 
-1. Agent or admin logs in and establishes a Socket.io connection.
-2. Backend sets `agent:{user_id}:status = available` in Redis.
-3. User can manually set status to `away`.
-4. Backend sets status to `busy` when an active conversation is assigned.
-5. If the socket disconnects, backend sets status to `offline`.
+    %% RAG Engine & Fast Path
+    PIIMask --> RAGRetrieval[PostgreSQL pgvector Hybrid Retrieval: RRF]
+    RAGRetrieval --> FastPathCheck{Confidence >= 0.88 & Exact Match?}
+    FastPathCheck -->|Yes - Exact Match| FastPathReturn[0-Token Fast-Path Response: <50ms, $0.00]
+    FastPathCheck -->|No - Complex Query| ReasoningLoop[Bounded ReAct State Machine: Max 5 Iterations]
 
-## 5. Customer Initiates a Chat
+    %% Tool Calling & Reasoning
+    ReasoningLoop --> ModelDecision{Agent Next Action?}
+    ModelDecision -->|Call Domain / Custom Tool| ExecTool[Execute Typed Tool with Timeout & Audit Log]
+    ExecTool --> ReasoningLoop
+    ModelDecision -->|Customer Demands Human / Low Confidence| HandoffCheck{Human Agent Online in Redis?}
+    
+    %% Handoff Logic
+    HandoffCheck -->|Yes| AssignHuman[Assign to Online Specialist & Emit Alert]
+    HandoffCheck -->|No| OfflineSLA[Explain Specialists Offline & Promise 24h Email Reply]
 
-1. Customer visits a website with the embedded widget. `data-workspace-id` identifies the tenant.
-2. Widget opens and shows a static greeting without creating a backend conversation.
-3. As the customer types, debounced public KB suggestions may appear.
-4. Customer sends the first message; backend creates or finds a `Contact` using anonymous `visitor_id`, creates a `Conversation`, and stores the first `Message`.
-5. Backend checks Redis for available agents in the workspace.
-6. If an agent is available, round-robin assignment picks the next available agent and the widget shows a connecting state.
-7. If all online/active agents are busy, the conversation queues in Redis/BullMQ runtime state and the widget shows estimated wait time plus an email fallback option.
+    ModelDecision -->|Final Response Synthesized| Guardrails[Output Safety Guardrails & PII Unmasking]
+    
+    %% Response Delivery
+    Guardrails --> DeliveryChoice{Channel Type}
+    DeliveryChoice -->|Live Chat| DeliverChat[Deliver Message via Socket.io]
+    DeliveryChoice -->|Inbound Email| DeliverEmail[Send Threaded Email via Resend]
+    DeliveryChoice -->|Voice Session| PiperTTS[Streaming Piper Neural TTS <150ms]
+    PiperTTS --> AudioOut[Stream Audio Chunks to Customer Speaker]
 
-## 6. Customer Initiates via Email
+    %% Barge-In Interruption
+    AudioOut --> BargeInEvent{Customer Speaks During Audio?}
+    BargeInEvent -->|Yes: voice:interrupt| CancelPlayback[Abort Piper Stream & Reset Turn]
+```
 
-1. Customer sends email to the workspace support address.
-2. Resend receives the email and calls the inbound webhook at `/api/v1/webhooks/email/inbound`.
-3. Backend parses the webhook JSON event, finds or creates a `Contact` by email, and threads by matching `In-Reply-To`/`References` headers against stored outbound `Message.emailMessageId` values.
-4. If no matching thread exists, backend creates a new email conversation for that workspace.
-5. The conversation appears in the unified inbox.
+---
 
-## 7. Agent or Admin Handles a Conversation
+## 2. Inbound Chat Scenarios & Decision Logic
 
-1. Agent or admin replies from the unified inbox.
-2. Chat replies are delivered via Socket.io.
-3. Email replies are sent through Resend with Message-ID/In-Reply-To headers preserved.
-4. AI summaries and AI reply drafts are generated asynchronously through BullMQ and Gemini.
-5. AI reply drafts are stored as non-sent draft messages using `Message.isAiDraft`.
-6. `Conversation.lastMessageId` tracks the latest message regardless of channel.
-7. Admins can reassign conversations, including escalation to admins.
-8. Agents and admins can mark conversations `open`, `pending`, `snoozed`, or `resolved` according to their permissions.
+### Scenario A: Instant FAQ Resolution (0-Token Fast Path)
+1. Customer types: *"What is your return policy for shoes?"*
+2. `HybridRetrieverService` executes Reciprocal Rank Fusion combining pgvector cosine distance + PostgreSQL full-text search.
+3. High similarity match (> 0.88) found in published article `Return Policy`.
+4. **Fast-Path Action**: The exact snippet is returned directly to the widget in **<50ms with 0 LLM tokens burned ($0.00 cost)**.
 
-## 8. Resolution Rating & Branding Customization
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer
+    participant Widget as Chat Widget
+    participant Server as NestJS Backend
+    participant DB as PostgreSQL (pgvector)
 
-1. Admin configures custom theme CSS color tokens (primary, hover, background, card), logo URL, and workspace short display name in **Settings -> 🎨 Theme & Branding**.
-2. Customers or agents sending photos, videos, or documents hit `/api/v1/upload`. The `StorageProvider` saves media files and attaches metadata to messages.
-3. BullMQ AI summary and draft workers automatically isolate text messages from media attachment tags.
-4. When a conversation status is marked **Resolved**, a **Resolution Rating** prompt appears, allowing customers/agents to rate satisfaction out of 5 stars (smooth resolution, long wait, unsatisfied) with real-time socket updates.
+    Customer->>Widget: "What is your return policy?"
+    Widget->>Server: POST /widget/messages
+    Server->>DB: 1 - (embedding <=> query_vec) WHERE workspace_id = $ws
+    DB-->>Server: Similarity: 0.93 (Exact Match)
+    Server-->>Widget: Return KB snippet directly (0-tokens, <50ms)
+    Widget-->>Customer: Displays authoritative answer with KB source link
+```
 
-## 9. Admin Oversight
+---
 
-1. Admin can view workspace overview data.
-2. Admin can manage team members, roles, knowledge base articles, custom domains, and theme branding.
-3. Admin can reassign conversations and handle escalations.
+### Scenario B: Dynamic Tool Calling (Live Order Lookup)
+1. Customer types: *"Where is my package for order ORD-10294?"*
+2. Safety pre-flight passes; pgvector retrieves general shipping policies.
+3. LLM decides action: `{"action": "tool_call", "toolName": "getOrderStatus", "parameters": {"orderId": "ORD-10294"}}`.
+4. `ToolRegistryService` validates parameters with Zod schema, invokes authoritative endpoint, and records `ToolExecutionLog`.
+5. LLM ingests tool result: `{ status: "shipped", trackingNumber: "TRK-98234190", carrier: "FastCourier" }`.
+6. LLM synthesizes friendly status with tracking link and delivery estimate.
 
-## 9. Deactivation
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer
+    participant Agent as AgentRuntimeService
+    participant Tools as ToolRegistryService
+    participant Carrier as Shipping / Custom API
+    participant Guard as OutputGuardrailsService
 
-- Admin can set a user's `is_active` to `false`.
-- Workspace deactivation remains a backend/admin operation, not a public user flow.
+    Customer->>Agent: "Where is order ORD-10294?"
+    Agent->>Tools: executeTool("getOrderStatus", { orderId: "ORD-10294" })
+    Tools->>Carrier: GET /api/orders/ORD-10294
+    Carrier-->>Tools: 200 OK { status: "Out for Delivery" }
+    Tools-->>Agent: Tool result returned
+    Agent->>Guard: Validate synthesized answer
+    Guard-->>Agent: Output safe (no unauthorized financial promise)
+    Agent-->>Customer: "Order ORD-10294 is Out for Delivery with FastCourier!"
+```
+
+---
+
+### Scenario C: Custom Plug-and-Play API Tool (Enterprise User Database)
+1. Workspace Admin registers a custom API tool `query_user_subscription` pointing to `https://api.mycompany.com/v1/sub` with Auth headers.
+2. System tests endpoint with pre-flight verification before saving.
+3. When customer asks: *"What plan am I on?"*, AI dynamically extracts customer email and invokes the custom tool.
+4. AI responds with current tier and renewal dates without human intervention.
+
+---
+
+### Scenario D: Human Escalation & Offline Fallback
+1. Customer explicitly demands: *"I need to speak to a human representative."*
+2. `AssignToHumanAgentTool` queries Redis presence `workspace:{id}:presence`.
+3. **If Agents are Online**:
+   - System assigns conversation to least-busy agent via round-robin.
+   - Emits `agent:handoff-alert` real-time notification to the Agent Inbox.
+   - AI transitions to Copilot mode (only generates private drafts, never sends customer messages).
+4. **If Agents are Offline**:
+   - AI responds: *"All human specialists are currently offline. Our team will review your inquiry and email you within 24 hours."*
+   - Widget displays email capture form.
+
+---
+
+## 3. Real-Time Autonomous Voice Agent Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Customer Browser (Mic/Speaker)
+    participant Gateway as VoiceGateway (Socket.io)
+    participant STT as WhisperAdapterService
+    participant Agent as AgentRuntimeService
+    participant TTS as PiperAdapterService
+
+    Customer->>Gateway: voice:session-start
+    Gateway-->>Customer: voice:session-ready
+    
+    loop Streaming Turn
+        Customer->>Gateway: voice:audio-chunk (WebM / PCM)
+        Gateway->>STT: appendAudioChunk()
+    end
+
+    Customer->>Gateway: voice:audio-chunk (isFinal: true)
+    STT-->>Gateway: voice:transcript-final (sttLatencyMs: 210ms)
+    Gateway-->>Customer: voice:transcript-final
+    
+    Gateway->>Agent: runAgent(transcript, channel='voice')
+    Agent-->>Gateway: finalResponse (agentLatencyMs: 340ms)
+    
+    Gateway->>TTS: synthesizeStream(finalResponse)
+    loop Streaming Audio Chunks
+        TTS-->>Gateway: Audio Chunk 1..N (<150ms / chunk)
+        Gateway-->>Customer: voice:audio-out
+        Customer->>Customer: Playback on Speaker (TTFA: 680ms)
+    end
+
+    opt Customer Interrupts (Barge-In)
+        Customer->>Gateway: voice:interrupt
+        Gateway->>TTS: cancelSynthesis()
+        Gateway-->>Customer: voice:playback-cancelled
+        Note over Customer,Gateway: Speaker output halts instantly, context resets
+    end
+```
+
+---
+
+## 4. Multi-Agent & Copilot Interaction Matrix
+
+| Mode | Trigger Condition | AI Role | Customer Visibility | Sender Type |
+|---|---|---|:---:|:---:|
+| **Autonomous AI Bot** | Unassigned conversation + AI enabled | Answers questions, calls tools, handles voice | **Visible directly** | `bot` |
+| **Copilot Smart Draft** | Human agent assigned | Generates private draft suggestions | **Private to agent only** | `agent` (Draft) |
+| **Fast-Path Exact Match** | High-confidence FAQ match (>0.88) | Direct KB return (0-token, <50ms) | **Visible directly** | `bot` |
+| **Human Specialist** | Human assigned & active | Human types and replies | **Visible directly** | `agent` |

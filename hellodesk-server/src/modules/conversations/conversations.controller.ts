@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
@@ -10,7 +10,7 @@ import type { AuthUser } from '../../lib/auth.js';
 
 @Controller('conversations')
 export class ConversationsController {
-    constructor(private readonly conversationsService: ConversationsService) {}
+    constructor(@Inject(ConversationsService) private readonly conversationsService: ConversationsService) {}
 
     @UseGuards(JwtAuthGuard)
     @Get()

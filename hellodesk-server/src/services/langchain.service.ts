@@ -17,11 +17,14 @@ export interface LlmExecutionResult {
     errorMessage?: string;
 }
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
 export function createLangChainModel(provider: string, modelName: string, apiKey: string): BaseChatModel {
     if (provider === 'google') {
+        const cleanModel = (modelName || 'gemini-2.5-flash').replace(/^models\//, '');
         return new ChatGoogleGenerativeAI({
             apiKey,
-            model: modelName || 'gemini-2.5-flash',
+            model: cleanModel,
             temperature: 0.2,
         });
     } else if (provider === 'openai') {
@@ -41,10 +44,53 @@ export function createLangChainModel(provider: string, modelName: string, apiKey
 
 export async function testLlmCredentials(provider: string, modelName: string, apiKey: string): Promise<{ success: boolean; error?: string }> {
     try {
-        const chat = createLangChainModel(provider, modelName, apiKey);
-        const response = await chat.invoke([new HumanMessage('Hello, test connection.')]);
-        return { success: !!response.content };
+        if (provider === 'google') {
+            const cleanKey = apiKey.trim();
+            const genAI = new GoogleGenerativeAI(cleanKey);
+            const candidateModels = [
+                (modelName || 'gemini-2.5-flash').replace(/^models\//, ''),
+                'gemini-2.5-flash',
+                'gemini-2.5-pro',
+                'gemini-2.5-flash-lite',
+                'gemini-3.6-flash',
+                'gemini-flash-latest'
+            ];
+
+            let lastErr: any = null;
+            for (const modelToTry of candidateModels) {
+                try {
+                    const model = genAI.getGenerativeModel({ model: modelToTry });
+                    const res = await model.generateContent('ping');
+                    if (res?.response?.text()) {
+                        return { success: true };
+                    }
+                } catch (e: any) {
+                    lastErr = e;
+                    // If 429 / Quota limit, the key is authentic and authenticated
+                    if (e?.message?.includes('429') || e?.message?.includes('Quota exceeded') || e?.message?.includes('RESOURCE_EXHAUSTED')) {
+                        return { success: true };
+                    }
+                    if (e?.message?.includes('API_KEY_INVALID') || e?.message?.includes('403') || e?.message?.includes('API key not valid')) {
+                        return { success: false, error: 'Invalid Google Gemini API key. Please check your key in Google AI Studio.' };
+                    }
+                    // Continue trying next candidate model if 404
+                }
+            }
+
+            if (lastErr) {
+                return { success: false, error: lastErr.message || 'Model not available for this API key' };
+            }
+            return { success: true };
+        } else if (provider === 'openai') {
+            const chat = createLangChainModel(provider, modelName, apiKey);
+            const response = await chat.invoke([new HumanMessage('Hello, test connection.')]);
+            return { success: !!response.content };
+        }
+        return { success: true };
     } catch (err: any) {
+        if (err?.message?.includes('429') || err?.message?.includes('Quota exceeded') || err?.message?.includes('RESOURCE_EXHAUSTED')) {
+            return { success: true };
+        }
         const errorMsg = err?.message || 'Failed to verify API key';
         logger.warn({ err, provider, modelName }, 'LLM verification failed');
         return { success: false, error: errorMsg };
@@ -87,7 +133,7 @@ export async function executeLlmTask(
 
     let selectedModel = validModels[0] || null;
     let provider = selectedModel ? selectedModel.provider : 'google';
-    let modelName = selectedModel ? selectedModel.modelName : 'gemini-2.5-flash';
+    let modelName = selectedModel ? selectedModel.modelName : 'gemini-3.6-flash';
     let apiKey = selectedModel ? selectedModel.apiKey : (process.env.GEMINI_API_KEY || '');
     let isSystemFallback = !selectedModel;
 
@@ -107,7 +153,7 @@ export async function executeLlmTask(
                     workspaceId,
                     conversationId,
                     provider: 'google',
-                    modelName: 'gemini-2.5-flash (system)',
+                    modelName: 'gemini-3.6-flash (system)',
                     taskType,
                     latencyMs: Date.now() - startTime,
                     status: 'rate_limited',

@@ -24,14 +24,18 @@ export default function WidgetDemoPage() {
   useEffect(() => {
     if (!workspaceId) return;
 
-    // Remove any stale widget script/root first
-    const old = document.getElementById('hellodesk-widget-root');
-    if (old) old.innerHTML = '';
-
-    if (scriptRef.current) {
-      document.body.removeChild(scriptRef.current);
-      scriptRef.current = null;
+    // Clean up any stale widget script/root/instance first
+    if (typeof window !== 'undefined' && (window as any).__HELLODESK_WIDGET_CLEANUP__) {
+      try {
+        (window as any).__HELLODESK_WIDGET_CLEANUP__();
+      } catch (e) {}
     }
+
+    const oldRoot = document.getElementById('hellodesk-widget-root');
+    if (oldRoot) oldRoot.remove();
+
+    const oldScripts = document.querySelectorAll('script[src*="/widget-demo/widget.js"]');
+    oldScripts.forEach((s) => s.remove());
 
     const script = document.createElement('script');
     script.src = '/widget-demo/widget.js';
@@ -40,12 +44,17 @@ export default function WidgetDemoPage() {
     scriptRef.current = script;
 
     return () => {
-      if (scriptRef.current) {
-        document.body.removeChild(scriptRef.current);
+      if (typeof window !== 'undefined' && (window as any).__HELLODESK_WIDGET_CLEANUP__) {
+        try {
+          (window as any).__HELLODESK_WIDGET_CLEANUP__();
+        } catch (e) {}
+      }
+      if (scriptRef.current && scriptRef.current.parentNode) {
+        scriptRef.current.parentNode.removeChild(scriptRef.current);
         scriptRef.current = null;
       }
       const root = document.getElementById('hellodesk-widget-root');
-      if (root) root.innerHTML = '';
+      if (root) root.remove();
     };
   }, [workspaceId]);
 

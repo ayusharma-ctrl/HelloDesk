@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
@@ -9,7 +9,7 @@ import type { AuthUser } from '../../lib/auth.js';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('users')
 export class UsersController {
-    constructor(private readonly usersService: UsersService) {}
+    constructor(@Inject(UsersService) private readonly usersService: UsersService) {}
 
     @RequirePermission('team:view')
     @Get()

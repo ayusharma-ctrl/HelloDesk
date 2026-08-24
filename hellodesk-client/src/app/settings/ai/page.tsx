@@ -58,7 +58,7 @@ export default function AiSettingsPage() {
     // Add Model Form State
     const [showModal, setShowModal] = useState(false);
     const [provider, setProvider] = useState('google');
-    const [modelName, setModelName] = useState('gemini-2.5-flash');
+    const [modelName, setModelName] = useState('gemini-3.6-flash');
     const [apiKey, setApiKey] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [isVerifiedSuccess, setIsVerifiedSuccess] = useState(false);
@@ -371,14 +371,29 @@ export default function AiSettingsPage() {
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold text-slate-700 block mb-1">Model Name</label>
-                                    <Input
+                                    <select
                                         value={modelName}
                                         onChange={e => {
                                             setModelName(e.target.value);
                                             setIsVerifiedSuccess(false);
                                         }}
-                                        placeholder="e.g. gemini-2.5-flash or gpt-4o-mini"
-                                    />
+                                        className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                    >
+                                        {provider === 'google' ? (
+                                            <>
+                                                <option value="gemini-3.6-flash">gemini-3.6-flash (Primary - Fast & Stable)</option>
+                                                <option value="gemini-3.5-flash">gemini-3.5-flash (Stable Production - Low Demand)</option>
+                                                <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-Fast Lite)</option>
+                                                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Next-Gen Lite)</option>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <option value="gpt-4o-mini">gpt-4o-mini (Recommended)</option>
+                                                <option value="gpt-4o">gpt-4o (Omni)</option>
+                                                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                                            </>
+                                        )}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold text-slate-700 block mb-1">API Key</label>

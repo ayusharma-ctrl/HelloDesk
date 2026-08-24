@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { AgentsService } from './agents.service.js';
@@ -8,7 +8,7 @@ import type { AuthUser } from '../../lib/auth.js';
 @UseGuards(JwtAuthGuard)
 @Controller('agents')
 export class AgentsController {
-    constructor(private readonly agentsService: AgentsService) {}
+    constructor(@Inject(AgentsService) private readonly agentsService: AgentsService) {}
 
     @Get('me/status')
     async getMyStatus(@CurrentUser() user: AuthUser) {

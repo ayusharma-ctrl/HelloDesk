@@ -13,6 +13,11 @@ export function PublicKbLayout({ children, workspaceName, workspaceId }: PublicK
     const brandName = workspaceName || 'HelloDesk';
     const initialChar = brandName.charAt(0).toUpperCase() || 'H';
     const kbHomeUrl = workspaceId ? `/kb?workspaceId=${encodeURIComponent(workspaceId)}` : '/kb';
+    const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+
+    React.useEffect(() => {
+        setIsLoggedIn(Boolean(localStorage.getItem('token')));
+    }, []);
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -34,7 +39,7 @@ export function PublicKbLayout({ children, workspaceName, workspaceId }: PublicK
                     </Link>
 
                     <div className="flex items-center gap-4">
-                        {typeof window !== 'undefined' && localStorage.getItem('token') && (
+                        {isLoggedIn && (
                             <Link
                                 href="/inbox"
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"

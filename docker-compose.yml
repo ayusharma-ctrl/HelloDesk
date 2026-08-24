@@ -2,22 +2,24 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg17
     container_name: hellodesk-postgres
     restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
       POSTGRES_DB: hellodesk
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hellodesk"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
@@ -48,6 +50,7 @@ services:
       SERVER_BASE_URL: "http://localhost:3001"
       APP_BASE_URL: "http://localhost:3000"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
       RESEND_API_KEY: "${RESEND_API_KEY}"
       RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL}"
     depends_on:
@@ -68,6 +71,7 @@ services:
       NODE_ENV: production
       NEXT_PUBLIC_SERVER_URL: "http://localhost:3001"
       NEXT_PUBLIC_WS_URL: "http://localhost:3001"
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:3001"
     depends_on:
       - server
 

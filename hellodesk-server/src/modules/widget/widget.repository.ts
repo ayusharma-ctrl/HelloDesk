@@ -3,10 +3,18 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class WidgetRepository {
-    constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+    constructor(@Inject(PrismaService) private readonly prisma: PrismaService) { }
 
-    async findWorkspace(id: string) {
-        return this.prisma.workspace.findUnique({ where: { id } });
+    async findWorkspace(idOrName: string) {
+        return this.prisma.workspace.findFirst({
+            where: {
+                OR: [
+                    { id: idOrName },
+                    { name: idOrName },
+                    { shortName: idOrName },
+                ],
+            },
+        });
     }
 
     async upsertContact(visitorId: string, workspaceId: string, email?: string, name?: string) {
@@ -76,26 +84,42 @@ export class WidgetRepository {
 
     async updateMessagesAsRead(conversationId: string) {
         return this.prisma.message.updateMany({
-            where: { conversationId, senderType: 'agent', readAt: null },
+            where: {
+                conversationId,
+                senderType: { in: ['agent', 'bot'] },
+                readAt: null
+            },
             data: { readAt: new Date() },
         });
     }
 
     async findKbSuggestions(query: string, workspaceId?: string) {
+        if (!workspaceId) return [];
         return this.prisma.article.findMany({
             where: {
                 status: 'published',
-                ...(workspaceId ? { workspaceId } : {}),
+                workspaceId,
                 ...(query
                     ? {
-                          OR: [
-                              { title: { contains: query, mode: 'insensitive' } },
-                              { content: { contains: query, mode: 'insensitive' } },
-                          ],
-                      }
+                        OR: [
+                            { title: { contains: query, mode: 'insensitive' } },
+                            { content: { contains: query, mode: 'insensitive' } },
+                        ],
+                    }
                     : {}),
             },
             take: 5,
+        });
+    }
+
+    async updateRating(conversationId: string, rating: number, feedbackOption?: string) {
+        return this.prisma.conversation.update({
+            where: { id: conversationId },
+            data: {
+                rating,
+                ratingFeedback: feedbackOption ?? undefined,
+                ratedAt: new Date(),
+            },
         });
     }
 }

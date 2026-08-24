@@ -29,19 +29,31 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         setIoInstance(server);
 
         server.use(async (socket: Socket, next) => {
-            const type = socket.handshake.auth?.type;
+            const type = socket.handshake.auth?.type || socket.handshake.query?.type;
+            const visitorId = socket.handshake.auth?.visitorId || socket.handshake.query?.visitorId;
+            const workspaceId = socket.handshake.auth?.workspaceId || socket.handshake.query?.workspaceId;
 
-            if (type === 'visitor') {
-                const { visitorId, workspaceId } = socket.handshake.auth || {};
-                if (!visitorId || !workspaceId) {
+            if (type === 'visitor' || visitorId) {
+                if (!visitorId) {
                     return next(new Error('Visitor missing credentials'));
                 }
-                const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-                if (!ws) return next(new Error('Invalid workspace'));
+                let targetWsId = workspaceId;
+                if (workspaceId) {
+                    const ws = await prisma.workspace.findFirst({
+                        where: {
+                            OR: [
+                                { id: workspaceId },
+                                { name: workspaceId },
+                                { shortName: workspaceId },
+                            ],
+                        },
+                    });
+                    if (ws) targetWsId = ws.id;
+                }
 
                 socket.data.isVisitor = true;
                 socket.data.visitorId = visitorId;
-                socket.data.workspaceId = workspaceId;
+                socket.data.workspaceId = targetWsId;
                 return next();
             }
 
@@ -80,7 +92,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     async handleConnection(socket: Socket) {
         if (socket.data.isVisitor) {
-            socket.join(`visitor:${socket.data.visitorId}`);
+            if (socket.data.visitorId) {
+                socket.join(`visitor:${socket.data.visitorId}`);
+            }
             logger.info({ visitorId: socket.data.visitorId, socketId: socket.id }, 'Visitor socket connected');
             return;
         }
@@ -104,6 +118,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
             await setAgentStatus(workspaceId, userId, 'offline');
             this.server.to(`workspace:${workspaceId}`).emit('presence:changed', { workspaceId, userId, status: 'offline' });
             logger.info({ workspaceId, userId, socketId: socket.id }, 'Agent socket disconnected & set offline');
+        }
+    }
+
+    @SubscribeMessage('visitor:join')
+    async handleVisitorJoin(@MessageBody() data: { visitorId?: string }, @ConnectedSocket() socket: Socket) {
+        const vId = data?.visitorId || socket.data.visitorId;
+        if (vId) {
+            socket.data.isVisitor = true;
+            socket.data.visitorId = vId;
+            socket.join(`visitor:${vId}`);
+            logger.info({ visitorId: vId, socketId: socket.id }, 'Visitor joined room via visitor:join event');
         }
     }
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
@@ -10,7 +10,7 @@ import type { AuthUser } from '../../lib/auth.js';
 @RequirePermission('domain:manage')
 @Controller('domains')
 export class DomainsController {
-    constructor(private readonly domainsService: DomainsService) {}
+    constructor(@Inject(DomainsService) private readonly domainsService: DomainsService) {}
 
     @Post()
     async registerDomain(@CurrentUser() user: AuthUser, @Body() body: any) {

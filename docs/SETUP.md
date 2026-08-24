@@ -1,50 +1,51 @@
-# SETUP.md
+# SETUP.md — Installation & Deployment Guide
 
-## Tech Stack
+## Tech Stack Overview
 
 ### Backend (`hellodesk-server`)
-
 - **Language**: TypeScript
-- **Runtime/Framework**: Node.js 24.19.0 LTS + NestJS v11 + Express Adapter (`src/app.module.ts`)
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Cache / Pub-Sub / Rate Limiting**: Redis
-- **Realtime**: Socket.io via NestJS `@WebSocketGateway()`
-- **Background Jobs**: BullMQ, backed by Redis, for email sending, AI summary/draft generation, and webhook processing
+- **Runtime/Framework**: Node.js 24.19.0 LTS + NestJS v11 + Express Adapter
+- **Database**: PostgreSQL 17 + `pgvector` extension for 768-dim semantic search
+- **ORM**: Prisma ORM (with `postgresqlExtensions` preview feature)
+- **Cache & Presence**: Redis 7 for presence tracking, queuing, and rate limiting
+- **Realtime**: Socket.io via NestJS `@WebSocketGateway()` (EventsGateway & VoiceGateway)
+- **Background Jobs**: BullMQ for email processing, AI summaries, drafts, and vector indexing
 - **Validation**: Zod & Class-Validator
-- **Logging**: Pino structured logging
-- **Resilience patterns**: token bucket rate limiting, circuit breakers, retry with exponential backoff, throttling/debouncing where applicable
-- **Email Provider**: Resend for inbound webhook handling and outbound email replies
-- **LLM Provider**: LangChain Multi-Model Dispatcher (Google Gemini, OpenAI, etc.) with circuit breakers and token tracking
-- **Deployment**: Render
+- **Logging & Telemetry**: Pino structured logging + hierarchical `TraceContext` spans
+- **AI Core**: Google Gemini 2.5 Flash, Gemini `text-embedding-004`, OpenAI GPT-4o-mini
+- **Voice Stack**: `faster-whisper` for streaming STT + `Piper` for neural streaming TTS
 
 ### Frontend (`hellodesk-client`)
-
-- **Framework**: Next.js App Router with TypeScript
-- **Folder structure**: Service-based feature folders
-- **Client state**: Zustand for UI state such as widget open/close, selected conversation, and local toggles
-- **Server state**: TanStack Query for fetching, caching, retry with backoff, deduplication, optimistic updates, and Socket.io cache sync
+- **Framework**: Next.js 16 App Router + React 19 + TypeScript (Turbopack)
+- **Styling**: Tailwind CSS + dynamic CSS theme variables
+- **Client State**: Zustand for widget state, audio recorder, and UI toggles
+- **Server State**: TanStack Query for caching, retry with backoff, and Socket.io cache sync
 - **Deployment**: Vercel
 
-### 🐳 Local Docker Compose Setup (1-Command Orchestration)
+---
 
-To spin up the entire HelloDesk platform locally (PostgreSQL 18, Redis 7, NestJS server, and Next.js client):
+## 🐳 Docker Compose 1-Command Local Orchestration
+
+To run the complete HelloDesk platform locally (PostgreSQL with pgvector, Redis 7, NestJS API server, and Next.js client):
 
 ```bash
-# 1. Start all containers in background
+# 1. Start all containers in the background
 docker compose up -d --build
 
-# 2. Check logs
+# 2. Inspect real-time container logs
 docker compose logs -f
 
-# 3. Stop containers
+# 3. Stop containers and cleanup
 docker compose down
 ```
 
-Services exposed:
-- **Client App**: `http://localhost:3000`
-- **Server API**: `http://localhost:3001`
-- **PostgreSQL**: `localhost:5432` (`postgres:postgrespassword`)
+### Services Exposed:
+- **Client App & Landing Page**: `http://localhost:3000`
+- **Admin Insights Dashboard**: `http://localhost:3000/dashboard`
+- **Voice AI Agent Playground**: `http://localhost:3000/voice-demo`
+- **Chat Widget Demo**: `http://localhost:3000/widget-demo`
+- **Server REST API**: `http://localhost:3001`
+- **PostgreSQL (pgvector)**: `localhost:5432` (`postgres:postgrespassword`)
 - **Redis**: `localhost:6379`
 
 ---
@@ -52,26 +53,25 @@ Services exposed:
 ## Local Development Setup
 
 ### Prerequisites
+- Node.js 20+ LTS
+- PostgreSQL with `vector` extension (or use Docker `pgvector/pgvector:pg17`)
+- Redis 7+
+- Google Gemini API Key (`GEMINI_API_KEY`)
+- OpenAI API Key (`OPENAI_API_KEY`) — optional
+- Resend API Key (`RESEND_API_KEY`) for email routing
 
-- Node.js LTS
-- PostgreSQL, local or Docker
-- Redis, local or Docker
-- ngrok for testing inbound email webhooks locally
-- Resend account with a verified or sandbox domain
-- Google Gemini API key
-
-### Backend Setup
-
+### 1. Database & Server Setup
 ```bash
 cd hellodesk-server
 npm install
 cp .env.example .env
-npx prisma migrate dev
+npx prisma generate
+npx prisma migrate dev --name init
+npm run seed
 npm run dev
 ```
 
-### Frontend Setup
-
+### 2. Frontend Client Setup
 ```bash
 cd hellodesk-client
 npm install
@@ -79,104 +79,43 @@ cp .env.example .env
 npm run dev
 ```
 
-### Testing Email Flow Locally
-
-```bash
-ngrok http 3000
-```
-
-1. Copy the ngrok HTTPS URL.
-2. Register the inbound webhook endpoint in Resend as `https://<ngrok-id>.ngrok.io/api/v1/webhooks/email/inbound`.
-3. Send a test email to the Resend sandbox/verified support address.
-4. Confirm the webhook event payload is received and a conversation/message is created or threaded.
-
 ---
 
-### Environment Variables - Backend
+## Environment Variables
 
-| Variable            | Description                             | Requirement                                                              |
-| :------------------ | :-------------------------------------- | :----------------------------------------------------------------------- |
-| `DATABASE_URL`      | PostgreSQL connection URL               | Required (ex: `postgresql://postgres:postgres@localhost:5432/hellodesk`) |
-| `REDIS_URL`         | Redis server connection URL             | Required (ex: `redis://localhost:6379`)                                  |
-| `RESEND_API_KEY`    | Resend provider API Key                 | Required for email verification/invites & replies                        |
-| `RESEND_FROM_EMAIL` | Verified support email sender           | Required (ex: `support@yourdomain.com` or Sandbox verified email)        |
-| `GEMINI_API_KEY`    | Google Gemini API Key                   | Required for AI summarize & drafting tasks                               |
-| `JWT_SECRET`        | Secret token string for signing cookies | Required for logins (ex: `your-un-guessable-jwt-secret`)                 |
-| `APP_BASE_URL`      | Port base URL of the client app         | Required for generating email support links                              |
-| `PORT`              | Local server host port                  | Optional (Default: `3001`)                                               |
+### Backend (`hellodesk-server/.env`)
+| Variable | Description | Required |
+|---|---|:---:|
+| `DATABASE_URL` | PostgreSQL URL with pgvector support | Yes |
+| `REDIS_URL` | Redis connection URL (`redis://localhost:6379`) | Yes |
+| `JWT_SECRET` | Secret key for signing authentication tokens | Yes |
+| `GEMINI_API_KEY` | Google Gemini API key (2.5 Flash & text-embedding-004) | Yes |
+| `OPENAI_API_KEY` | OpenAI API key (GPT-4o-mini) | Optional |
+| `RESEND_API_KEY` | Resend API key for inbound/outbound email | Yes |
+| `RESEND_FROM_EMAIL`| Verified sender email address | Yes |
+| `APP_BASE_URL` | Frontend URL (`http://localhost:3000`) | Yes |
+| `SERVER_BASE_URL` | Backend URL (`http://localhost:3001`) | Yes |
+| `PORT` | Backend port (Default: `3001`) | No |
 
-### Environment Variables - Frontend
-
-| Variable                   | Description                           | Requirement                            |
-| :------------------------- | :------------------------------------ | :------------------------------------- |
-| `NEXT_PUBLIC_API_BASE_URL` | API server backend link URL           | Required (ex: `http://localhost:3001`) |
-| `NEXT_PUBLIC_SOCKET_URL`   | Socket.io server connection pool link | Required (ex: `http://localhost:3001`) |
-
----
-
-## 🛠️ Step-by-Step Running / Setup Guide
-
-### Session 1: Database Initialization
-
-1. Ensure your local PostgreSQL and Redis servers are active.
-2. Spin up the tables and schema schemas:
-
-   ```bash
-   cd hellodesk-server
-   npx prisma migrate dev --name init
-   ```
-
-3. Run the database seed route to prep standard permissions and test accounts:
-
-   ```bash
-   npm run seed
-   ```
-
-### Session 2: Boot Backend Services (Express + BullMQ Workers)
-
-1. Set up your `.env` following `.env.example` (make sure all credentials above are set).
-2. Start the primary node instance:
-
-   ```bash
-   npm run dev
-   ```
-
-   _(Note: The server startup script automatically starts background BullMQ listeners: `[ai-summary]` and `[ai-draft]` queues to ingest active tasks)._
-
-### Session 3: Boot Front-End Dashboard (Next.js)
-
-1. Add variables to `hellodesk-client/.env` following configuration defaults.
-2. Fire up the application layout:
-
-   ```bash
-   cd hellodesk-client
-   npm run dev
-   ```
+### Frontend (`hellodesk-client/.env`)
+| Variable | Description | Required |
+|---|---|:---:|
+| `NEXT_PUBLIC_API_BASE_URL` | Backend API URL (`http://localhost:3001`) | Yes |
+| `NEXT_PUBLIC_SOCKET_URL` | Realtime Socket.io URL (`http://localhost:3001`) | Yes |
+| `NEXT_PUBLIC_SERVER_URL` | Server URL (`http://localhost:3001`) | Yes |
 
 ---
 
 ## 📌 Embeddable Live Chat Widget Script
 
-To load the HelloDesk widget onto any page or external HTML website, copy and insert the following script block directly before the closing `</body>` tag:
+To embed the HelloDesk Live Chat Widget onto any web page or external HTML application, place this snippet before `</body>`:
 
 ```html
 <!-- Start HelloDesk Live Chat Widget -->
 <div id="hellodesk-widget-root"></div>
 <script
   src="http://localhost:3000/widget-demo/widget.js"
-  data-workspace-id="YOUR_WORKSPACE_UUID_HERE"
+  data-workspace-id="YOUR_WORKSPACE_UUID"
 ></script>
 <!-- End HelloDesk Live Chat Widget -->
 ```
-
-_Note: Replace `http://localhost:3000` with the production Next.js client URL once deployed to Vercel._
-
----
-
-### Deployment Notes
-
-- Frontend deploys to Vercel.
-- Backend deploys to Render.
-- PostgreSQL and Redis must be provisioned for the backend.
-- After backend deployment, update the Resend inbound webhook config to point to the production backend URL.
-- For custom knowledge-base domains, configure TXT and CNAME records at your DNS registrar as guided in the `/settings/domains` console.

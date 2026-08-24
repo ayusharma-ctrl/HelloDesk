@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { ThemeRepository } from './theme.repository.js';
 
 @Injectable()
 export class ThemeService {
-    constructor(private readonly repository: ThemeRepository) {}
+    constructor(@Inject(ThemeRepository) private readonly repository: ThemeRepository) {}
 
     async updateTheme(workspaceId: string, body: any) {
         const { primaryColor, primaryHover, accentColor, bgColor, cardBg } = body || {};

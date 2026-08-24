@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/features/auth/api/me';
 import { useSocket } from '@/context/SocketContext';
 
 const navItems = [
+    { href: '/dashboard', label: '📊 Dashboard' },
     { href: '/inbox', label: '📥 Inbox' },
     { href: '/team', label: '👥 Team' },
     { href: '/kb', label: '📚 Knowledge Base', matchExact: true },
@@ -15,8 +16,11 @@ const navItems = [
 
 const adminItems = [
     { href: '/settings/domains', label: '🌐 Custom Domain', permission: 'domain:manage' },
+    { href: '/settings/email', label: '✉️ Email Platform', permission: 'domain:manage' },
     { href: '/settings/theme', label: '🎨 Theme & Branding', permission: 'theme:manage' },
+    { href: '/settings/storage', label: '☁️ Storage Platform', permission: 'theme:manage' },
     { href: '/settings/ai', label: '🤖 AI & Models', permission: 'llm:manage' },
+    { href: '/settings/tools', label: '⚡ Custom Tools', permission: 'llm:manage' },
     { href: '/kb/admin', label: '✏️ KB Authoring', permission: 'kb:manage' },
     { href: '/widget-demo', label: '💬 Widget Demo' },
 ];

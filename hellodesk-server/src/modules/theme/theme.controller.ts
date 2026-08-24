@@ -1,4 +1,4 @@
-import { Controller, Put, Body, UseGuards } from '@nestjs/common';
+import { Controller, Put, Body, UseGuards, Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
@@ -10,7 +10,7 @@ import type { AuthUser } from '../../lib/auth.js';
 @RequirePermission('theme:manage')
 @Controller('theme')
 export class ThemeController {
-    constructor(private readonly themeService: ThemeService) {}
+    constructor(@Inject(ThemeService) private readonly themeService: ThemeService) {}
 
     @Put()
     async updateTheme(@CurrentUser() user: AuthUser, @Body() body: any) {

@@ -12,11 +12,13 @@ import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { ThemeModule } from './modules/theme/theme.module.js';
 import { UploadModule } from './modules/upload/upload.module.js';
 import { LlmModule } from './modules/llm/llm.module.js';
+import { PermissionsModule } from './modules/permissions/permissions.module.js';
+import { AiModule } from './modules/ai/ai.module.js';
+import { StorageModule } from './modules/storage/storage.module.js';
+import { EmailModule } from './modules/email/email.module.js';
 import { HealthController } from './common/controllers/health.controller.js';
 import { EventsGateway } from './events.gateway.js';
 import { TokenBucketRateLimiterMiddleware } from './common/middleware/rate-limiter.middleware.js';
-
-import { PermissionsModule } from './modules/permissions/permissions.module.js';
 
 @Module({
     imports: [
@@ -32,8 +34,11 @@ import { PermissionsModule } from './modules/permissions/permissions.module.js';
         DashboardModule,
         ThemeModule,
         UploadModule,
+        StorageModule,
+        EmailModule,
         LlmModule,
         PermissionsModule,
+        AiModule,
     ],
     controllers: [HealthController],
     providers: [EventsGateway],
