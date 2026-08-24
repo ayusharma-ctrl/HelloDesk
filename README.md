@@ -1,4 +1,4 @@
-# PROJECT.md — HelloDesk Autonomous AI Support Platform
+# HelloDesk Autonomous AI Support Platform
 
 ## Overview
 
